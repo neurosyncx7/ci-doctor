@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import type { AppConfig } from './config.js';
 import { parseFailedWorkflowRun } from './domain/workflow-run.js';
 import { verifiedIncident } from './dashboard/verified-incident.js';
+import { DashboardLiveEvents } from './dashboard/live-events.js';
 import type { IncidentStore } from './persistence/incident-store.js';
 import { verifyGitHubSignature } from './security/github-signature.js';
 
@@ -13,11 +14,13 @@ type Dependencies = {
   config: AppConfig;
   incidentStore: IncidentStore;
   logger?: FastifyBaseLogger;
+  liveEvents?: DashboardLiveEvents;
 };
 
 const deliveryIdPattern = /^[A-Za-z0-9-]{16,200}$/;
 
 export async function buildApp(dependencies: Dependencies): Promise<FastifyInstance> {
+  const liveEvents = dependencies.liveEvents ?? new DashboardLiveEvents();
   const app = Fastify({
     logger: dependencies.logger ?? {
       level: dependencies.config.logLevel,
@@ -58,6 +61,13 @@ export async function buildApp(dependencies: Dependencies): Promise<FastifyInsta
 
   app.get('/healthz', async () => ({ status: 'ok' }));
   app.get('/v1/dashboard/verified-incident', async () => verifiedIncident);
+  app.get('/v1/dashboard/stream', async (request, reply) => {
+    reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+    reply.raw.write(': connected\n\n');
+    const unsubscribe = liveEvents.subscribe((event) => reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+    request.raw.once('close', unsubscribe);
+    return reply;
+  });
   app.get('/readyz', async (_request, reply) => {
     try {
       await dependencies.incidentStore.ping();
@@ -104,6 +114,9 @@ export async function buildApp(dependencies: Dependencies): Promise<FastifyInsta
         { deliveryId, eventName, rawBody },
         workflow
       );
+      if (incident.created) {
+        liveEvents.publish({ type: 'incident.accepted', incidentId: incident.incidentId, repository: workflow.repoFullName, at: new Date().toISOString() });
+      }
       return reply.code(202).send({
         status: incident.created ? 'accepted' : 'duplicate',
         incidentId: incident.incidentId || undefined
