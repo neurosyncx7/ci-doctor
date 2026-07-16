@@ -7,16 +7,16 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev:api": "tsx watch apps/api/src/server.ts",
+    "dev:api": "node --env-file=.env --import tsx --watch apps/api/src/server.ts",
     "start:api": "node --enable-source-maps apps/api/dist/server.js",
     "build:api": "tsc --project apps/api/tsconfig.json",
     "test:api": "node --import tsx --test apps/api/test/github-webhook.test.ts apps/api/test/log-redaction.test.ts apps/api/test/failure-clustering.test.ts apps/api/test/diagnosis-contract.test.ts apps/api/test/repair-policy.test.ts",
-    "worker:ingest": "tsx apps/api/src/workers/ingest-server.ts",
-    "worker:diagnose": "tsx apps/api/src/workers/diagnosis-server.ts",
+    "worker:ingest": "node --env-file=.env --import tsx apps/api/src/workers/ingest-server.ts",
+    "worker:diagnose": "node --env-file=.env --import tsx apps/api/src/workers/diagnosis-server.ts",
     "test:fixture": "npm.cmd --prefix fixtures/ci-doctor-fixtures test",
     "db:up": "docker compose --env-file .env --file infra/postgres/compose.yml up -d",
     "db:down": "docker compose --env-file .env --file infra/postgres/compose.yml down",
-    "db:migrate": "tsx apps/api/src/persistence/migrate.ts"
+    "db:migrate": "node --env-file=.env --import tsx apps/api/src/persistence/migrate.ts"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.1.1",

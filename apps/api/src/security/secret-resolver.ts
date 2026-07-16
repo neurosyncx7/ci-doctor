@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const secretNames = [
   'DATABASE_URL',
+  'MIGRATION_DATABASE_URL',
   'GITHUB_WEBHOOK_SECRET',
   'GITHUB_APP_PRIVATE_KEY',
   'ARTIFACT_ENCRYPTION_KEY_BASE64',

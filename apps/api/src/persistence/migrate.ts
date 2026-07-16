@@ -3,10 +3,11 @@ import { runMigrations } from './migration-runner.js';
 
 async function main(): Promise<void> {
   const environment = resolveSecrets(process.env);
-  if (!environment.DATABASE_URL) {
-    throw new Error('DATABASE_URL is required to run migrations');
+  const migrationDatabaseUrl = environment.MIGRATION_DATABASE_URL ?? environment.DATABASE_URL;
+  if (!migrationDatabaseUrl) {
+    throw new Error('MIGRATION_DATABASE_URL is required to run migrations');
   }
-  await runMigrations(environment.DATABASE_URL, 'infra/postgres/migrations');
+  await runMigrations(migrationDatabaseUrl, 'infra/postgres/migrations');
 }
 
 void main();
