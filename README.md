@@ -20,3 +20,18 @@ npm.cmd test
 
 The command must initially fail. That is the source signal CI Doctor will later receive from GitHub Actions; it is not a mocked dashboard state.
 
+## Live repair proof
+
+CI Doctor produced a real, sandbox-validated repair PR for the fixture repository: [PR #3](https://github.com/neurosyncx7/ci-doctor-fixtures/pull/3). Its GitHub Actions check passed after four focused sandbox tests and the full eight-test suite succeeded.
+
+The protected workflow bootstrap was intentionally separated from the agent repair scope: CI Doctor may only alter `src/**` and `test/**`; it never changes CI configuration or dependencies as part of an autonomous repair.
+
+## Dashboard
+
+The Phase 6 dashboard is a compact incident cockpit built around that verified run—not mock metrics. It presents the incident timeline, evidence-bound patch rationale, sandbox policy boundary, and the real PR/check result.
+
+```powershell
+npm.cmd run dev:dashboard
+```
+
+Open `http://127.0.0.1:4311`. Build a production bundle with `npm.cmd run build:dashboard`.
