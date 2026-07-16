@@ -1,0 +1,17 @@
+{
+  "name": "ci-doctor-fixtures",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Intentionally broken CI fixture repository for CI Doctor end-to-end validation.",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/profile.test.js test/pagination.test.js test/search-session.test.js test/status-label.test.js",
+    "test:pagination": "node --test test/pagination.test.js",
+    "test:profile": "node --test test/profile.test.js",
+    "test:search": "node --test test/search-session.test.js",
+    "test:status": "node --test test/status-label.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

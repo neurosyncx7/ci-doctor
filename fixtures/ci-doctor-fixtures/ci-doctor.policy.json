@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "runtime": "node22",
+  "allowedCommands": [
+    "npm.cmd test",
+    "npm.cmd run test:profile",
+    "npm.cmd run test:pagination",
+    "npm.cmd run test:search",
+    "npm.cmd run test:status"
+  ],
+  "autonomousWritePaths": [
+    "src/**",
+    "test/**"
+  ],
+  "protectedPaths": [
+    ".github/**",
+    "package.json",
+    "ci-doctor.policy.json"
+  ],
+  "repairBudget": {
+    "maxAttempts": 3,
+    "maxChangedFiles": 8,
+    "maxChangedLines": 500,
+    "maxWallSeconds": 720
+  },
+  "validation": {
+    "requireRegressionTest": true,
+    "requireTargetedTest": true,
+    "requireFullSuite": true
+  }
+}

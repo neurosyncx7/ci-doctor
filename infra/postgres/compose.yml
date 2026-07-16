@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ci_doctor
+      POSTGRES_USER: ci_doctor_owner
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD in .env}
+      CI_DOCTOR_APP_PASSWORD: ${CI_DOCTOR_APP_PASSWORD:?set CI_DOCTOR_APP_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - "127.0.0.1:5432:5432"
+    command:
+      - postgres
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+    volumes:
+      - ci-doctor-postgres:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ci_doctor_owner -d ci_doctor"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  ci-doctor-postgres:
