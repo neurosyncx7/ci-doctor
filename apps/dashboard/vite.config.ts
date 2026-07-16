@@ -6,6 +6,9 @@ export default defineConfig({
   root: __dirname,
   plugins: [react()],
   resolve: { alias: { '@': resolve(__dirname, 'src') } },
-  server: { host: '127.0.0.1', port: 4311, strictPort: true },
+  server: {
+    host: '127.0.0.1', port: 4311, strictPort: true,
+    proxy: { '/api': { target: 'http://127.0.0.1:4300', changeOrigin: false } }
+  },
   build: { outDir: 'dist', emptyOutDir: true }
 });

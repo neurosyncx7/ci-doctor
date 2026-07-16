@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev:api": "node --env-file=.env --import tsx --watch apps/api/src/server.ts",
+    "dev:console": "concurrently --names api,console --prefix-colors cyan,magenta \"npm run dev:api\" \"npm run dev:dashboard\"",
     "start:api": "node --enable-source-maps apps/api/dist/server.js",
     "build:api": "tsc --project apps/api/tsconfig.json",
     "dev:dashboard": "vite --config apps/dashboard/vite.config.ts",
@@ -43,6 +44,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^8.1.5"

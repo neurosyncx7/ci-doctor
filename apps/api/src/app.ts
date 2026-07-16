@@ -5,6 +5,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import type { AppConfig } from './config.js';
 import { parseFailedWorkflowRun } from './domain/workflow-run.js';
+import { verifiedIncident } from './dashboard/verified-incident.js';
 import type { IncidentStore } from './persistence/incident-store.js';
 import { verifyGitHubSignature } from './security/github-signature.js';
 
@@ -56,6 +57,7 @@ export async function buildApp(dependencies: Dependencies): Promise<FastifyInsta
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/v1/dashboard/verified-incident', async () => verifiedIncident);
   app.get('/readyz', async (_request, reply) => {
     try {
       await dependencies.incidentStore.ping();

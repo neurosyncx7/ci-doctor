@@ -1,82 +1,43 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, ChevronRight, ExternalLink, FileCode2, GitPullRequest, LockKeyhole, ShieldCheck, TerminalSquare } from 'lucide-react';
+import { Check, ChevronRight, ExternalLink, FileCode2, GitPullRequest, LockKeyhole, ShieldCheck, TerminalSquare, ArrowUpRight, RefreshCw, Activity, DatabaseZap } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { incidentProof } from './incident-proof';
 
 const IncidentCore = lazy(() => import('./IncidentCore').then((module) => ({ default: module.IncidentCore })));
-
-const stages = [
-  ['Failure detected', '4 independent CI signatures clustered'],
-  ['Evidence sealed', 'Logs redacted and encrypted at rest'],
-  ['Diagnosis formed', 'Bounded hypotheses tied to evidence'],
-  ['Repair validated', 'Focused tests + complete suite in Docker'],
-  ['PR opened', 'GitHub Actions check passed']
-] as const;
+type Incident = {
+  incidentId: string; status: string; repository: string; workflow: string;
+  pullRequest: { number: number; url: string }; sourceSha: string; repairSha: string;
+  validation: { focused: string; fullSuite: string; sandbox: string };
+  failures: ReadonlyArray<{ label: string; detail: string; patch: string }>;
+  safeguards: readonly string[];
+};
+type View = 'landing' | 'console' | 'runbook' | 'security';
+const stages = ['Failure detected', 'Evidence sealed', 'Diagnosis formed', 'Repair validated', 'PR opened'];
 
 export function App() {
-  const [stage, setStage] = useState(4);
-  const [selectedFailure, setSelectedFailure] = useState(1);
-  useEffect(() => {
-    const timer = window.setInterval(() => setStage((current) => current === 4 ? 0 : current + 1), 4200);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const failure = incidentProof.failures[selectedFailure]!;
-  return (
-    <main className="shell">
-      <div className="ambient ambient-one" /><div className="ambient ambient-two" />
-      <nav className="topbar">
-        <div className="brand"><span className="brand-mark"><ShieldCheck size={17} /></span><span>CI DOCTOR</span><small>incident command</small></div>
-        <div className="top-status"><span className="pulse" />LIVE PROOF <span className="separator" /> GitHub verified</div>
-        <button className="repo-chip" onClick={() => window.open(incidentProof.pullRequest.url, '_blank', 'noopener,noreferrer')}>
-          <GitPullRequest size={15} /> PR #{incidentProof.pullRequest.number}<ExternalLink size={13} />
-        </button>
-      </nav>
-
-      <section className="hero-grid">
-        <div className="hero-copy">
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-            <p className="eyebrow"><span /> INCIDENT RESOLVED</p>
-            <h1>CI failed.<br /><em>The doctor shipped</em><br />the cure.</h1>
-            <p className="lede">An evidence-bound repair loop diagnosed four independent failures, validated every fix in a sealed sandbox, then opened a PR with a real green check.</p>
-          </motion.div>
-          <div className="hero-facts">
-            <div><strong>{incidentProof.validation.focused}</strong><span>Focused tests</span></div>
-            <div><strong>{incidentProof.validation.fullSuite}</strong><span>Full suite</span></div>
-            <div><strong>0</strong><span>Secrets exposed</span></div>
-          </div>
-        </div>
-        <div className="core-card glass"><div className="core-label"><span>REPAIR SIGNAL</span><b>HEALTHY</b></div><Suspense fallback={<div className="core-loading">Loading secure incident core…</div>}><IncidentCore /></Suspense><div className="core-footer"><span className="pulse" />GitHub Actions · passed <Check size={15} /></div></div>
-      </section>
-
-      <section className="command-grid">
-        <div className="timeline-card glass">
-          <div className="section-heading"><div><p className="eyebrow">AUTONOMOUS RUN</p><h2>From red to green</h2></div><span className="mono">{incidentProof.incidentId}</span></div>
-          <div className="timeline">
-            {stages.map(([title, description], index) => <button key={title} onClick={() => setStage(index)} className={`stage ${index === stage ? 'active' : ''} ${index < stage ? 'complete' : ''}`}>
-              <span className="stage-dot">{index < stage ? <Check size={12} /> : String(index + 1).padStart(2, '0')}</span>
-              <span><b>{title}</b><small>{description}</small></span><ChevronRight size={16} />
-            </button>)}
-          </div>
-        </div>
-
-        <div className="evidence-card glass">
-          <div className="section-heading"><div><p className="eyebrow">EVIDENCE-BOUND PATCH</p><h2>Four root causes</h2></div><FileCode2 size={19} /></div>
-          <div className="failure-tabs">{incidentProof.failures.map((item, index) => <button key={item.label} className={index === selectedFailure ? 'selected' : ''} onClick={() => setSelectedFailure(index)}>{String(index + 1).padStart(2, '0')}</button>)}</div>
-          <AnimatePresence mode="wait"><motion.div key={failure.label} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="patch-preview">
-            <div><span className="mono">{failure.label}</span><p>{failure.detail}</p></div>
-            <pre><i>+</i>{failure.patch}</pre>
-          </motion.div></AnimatePresence>
-          <div className="guardrail"><LockKeyhole size={15} /><span>Only <b>src/**</b> and <b>test/**</b> could change. CI configuration was protected.</span></div>
-        </div>
-      </section>
-
-      <section className="proof-strip glass">
-        <div className="proof-title"><TerminalSquare size={18} /><span><b>Validation ledger</b><small>{incidentProof.validation.sandbox}</small></span></div>
-        <div className="ledger-item"><span>Base</span><b className="mono">{incidentProof.sourceSha}</b></div>
-        <div className="ledger-line" /><div className="ledger-item"><span>Repair</span><b className="mono success">{incidentProof.repairSha}</b></div>
-        <div className="ledger-line" /><div className="ledger-item"><span>Result</span><b className="success">PR #{incidentProof.pullRequest.number} · CHECK PASSED</b></div>
-      </section>
-    </main>
-  );
+  const [view, setView] = useState<View>('landing');
+  const [incident, setIncident] = useState<Incident | null>(null);
+  const [error, setError] = useState('');
+  const [stage, setStage] = useState(4); const [selected, setSelected] = useState(1);
+  const load = async () => { setError(''); try { const response = await fetch('/api/v1/dashboard/verified-incident'); if (!response.ok) throw new Error(); setIncident(await response.json()); } catch { setError('CI Doctor API is offline. Start the full console with npm.cmd run dev:console.'); } };
+  useEffect(() => { void load(); }, []);
+  useEffect(() => { const timer = window.setInterval(() => setStage((s) => s === 4 ? 0 : s + 1), 3800); return () => clearInterval(timer); }, []);
+  const go = (next: View) => { setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  return <main className="shell">
+    <div className="ambient ambient-one" /><div className="ambient ambient-two" />
+    <nav className="topbar"><button className="brand nav-button" onClick={() => go('landing')}><span className="brand-mark"><ShieldCheck size={17} /></span><span>CI DOCTOR</span><small>autonomous CI repair</small></button><div className="nav-links">{(['console','runbook','security'] as View[]).map((item) => <button key={item} className={view === item ? 'nav-active' : ''} onClick={() => go(item)}>{item}</button>)}</div><div className="top-status"><span className="pulse" /> API {incident ? 'CONNECTED' : 'WAITING'}</div></nav>
+    {error && <div className="api-banner"><DatabaseZap size={15}/>{error}<button onClick={() => void load()}><RefreshCw size={13}/>Retry</button></div>}
+    <AnimatePresence mode="wait">
+      {view === 'landing' && <Landing key="landing" incident={incident} go={go} />}
+      {view === 'console' && <Console key="console" incident={incident} stage={stage} setStage={setStage} selected={selected} setSelected={setSelected} />}
+      {view === 'runbook' && <Runbook key="runbook" go={go} />}
+      {view === 'security' && <Security key="security" incident={incident} />}
+    </AnimatePresence>
+  </main>;
 }
+
+function Landing({ incident, go }: { incident: Incident | null; go: (view: View) => void }) { return <motion.section className="landing" initial={{opacity:0,y:15}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-12}}><div className="landing-copy"><p className="eyebrow"><span/> CI DOCTOR / OPERATOR EDITION</p><h1>Make every<br/><em>red check</em><br/>explain itself.</h1><p className="lede">A governed repair agent that converts a real CI failure into an evidence-bound, sandbox-validated pull request—without giving code execution a GitHub write token.</p><div className="landing-actions"><button className="primary" onClick={() => go('console')}>Open incident console <ArrowUpRight size={16}/></button><button className="secondary" onClick={() => go('runbook')}>How the repair loop works</button></div><div className="trust-row"><span><Check size={14}/> Signed webhooks</span><span><Check size={14}/> Network-sealed runs</span><span><Check size={14}/> PR broker isolation</span></div></div><div className="landing-core glass"><div className="core-label"><span>LIVE VERIFIED RUN</span><b>{incident?.status ?? 'CONNECTING'}</b></div><Suspense fallback={<div className="core-loading">Loading incident core…</div>}><IncidentCore/></Suspense><div className="core-footer"><span className="pulse"/>{incident ? `${incident.validation.fullSuite} complete suite passed` : 'Awaiting local API'}<Activity size={15}/></div></div></motion.section> }
+
+function Console({ incident, stage, setStage, selected, setSelected }: { incident: Incident | null; stage: number; setStage: (i:number)=>void; selected:number; setSelected:(i:number)=>void }) { if (!incident) return <section className="empty-state glass"><Activity size={24}/><h2>Operator console is waiting for the local API.</h2><p>Run <code>npm.cmd run dev:console</code> from the project folder, then retry.</p></section>; const f = incident.failures[selected]!; return <motion.section initial={{opacity:0}} animate={{opacity:1}} className="console"><div className="console-head"><div><p className="eyebrow"><span/> VERIFIED INCIDENT</p><h1>{incident.repository}</h1><p>{incident.workflow} · <span className="mono">{incident.incidentId}</span></p></div><button className="repo-chip" onClick={() => window.open(incident.pullRequest.url, '_blank', 'noopener,noreferrer')}><GitPullRequest size={15}/>Open PR #{incident.pullRequest.number}<ExternalLink size={13}/></button></div><section className="metric-row"><Metric value={incident.validation.focused} label="Focused tests"/><Metric value={incident.validation.fullSuite} label="Full suite"/><Metric value="0" label="Secrets exposed"/><Metric value="5" label="Policy gates"/></section><section className="command-grid"><div className="timeline-card glass"><div className="section-heading"><div><p className="eyebrow">AUTONOMOUS RUN</p><h2>Evidence → repair → proof</h2></div><span className="mono">{incident.status}</span></div><div className="timeline">{stages.map((title,i)=><button key={title} onClick={()=>setStage(i)} className={`stage ${i===stage?'active':''} ${i<stage?'complete':''}`}><span className="stage-dot">{i<stage?<Check size={12}/>:String(i+1).padStart(2,'0')}</span><span><b>{title}</b><small>{['4 independent signatures clustered','Logs redacted and encrypted','Evidence-linked hypotheses only','Docker sandbox and test gates','GitHub Actions check passed'][i]}</small></span><ChevronRight size={16}/></button>)}</div></div><div className="evidence-card glass"><div className="section-heading"><div><p className="eyebrow">PATCH EXPLORER</p><h2>Root causes, not guesses</h2></div><FileCode2 size={19}/></div><div className="failure-tabs">{incident.failures.map((x,i)=><button key={x.label} className={i===selected?'selected':''} onClick={()=>setSelected(i)}>{String(i+1).padStart(2,'0')}</button>)}</div><div className="patch-preview"><div><span className="mono">{f.label}</span><p>{f.detail}</p></div><pre><i>+</i>{f.patch}</pre></div><div className="guardrail"><LockKeyhole size={15}/><span>Autonomous writes were limited to <b>src/**</b> and <b>test/**</b>. Workflow files were denied.</span></div></div></section><section className="proof-strip glass"><div className="proof-title"><TerminalSquare size={18}/><span><b>Validation ledger</b><small>{incident.validation.sandbox}</small></span></div><div className="ledger-item"><span>Base</span><b className="mono">{incident.sourceSha}</b></div><div className="ledger-line"/><div className="ledger-item"><span>Repair</span><b className="mono success">{incident.repairSha}</b></div><div className="ledger-line"/><div className="ledger-item"><span>Result</span><b className="success">PR #{incident.pullRequest.number} · CHECK PASSED</b></div></section></motion.section> }
+function Metric({value,label}:{value:string,label:string}) { return <div className="metric glass"><b>{value}</b><span>{label}</span></div> }
+function Runbook({go}:{go:(view:View)=>void}) { return <motion.section className="page-grid" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}}><div><p className="eyebrow"><span/> THE JOB, NOT A CHAT</p><h1>One bounded<br/>repair loop.</h1><p className="lede">CI Doctor gives each model a narrow responsibility, records every state change, and stops before a safe boundary is crossed.</p><button className="primary" onClick={()=>go('console')}>See verified result <ArrowUpRight size={16}/></button></div><div className="flow-panel glass">{['Signed GitHub failure event','Encrypted evidence bundle','Parallel failure clusters','Patch proposal under path policy','Docker validation: focused + suite','Idempotent broker opens PR'].map((step,i)=><div className="flow-step" key={step}><span>{String(i+1).padStart(2,'0')}</span><b>{step}</b><ChevronRight size={15}/></div>)}</div></motion.section> }
+function Security({incident}:{incident:Incident|null}) { return <motion.section className="page-grid" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}}><div><p className="eyebrow"><span/> SECURITY BY DESIGN</p><h1>Execution is<br/><em>not authority.</em></h1><p className="lede">The sandbox can repair code, but cannot reach GitHub. The broker can write a PR, but cannot execute repository code.</p></div><div className="flow-panel glass">{(incident?.safeguards ?? ['Loading verified safeguards…']).map((item,i)=><div className="flow-step" key={item}><span><ShieldCheck size={15}/></span><b>{item}</b><Check size={15}/></div>)}</div></motion.section> }
