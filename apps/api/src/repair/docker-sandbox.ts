@@ -44,13 +44,14 @@ export class DockerRepairSandbox implements RepairSandbox {
   async execute(command: string, policy: RepairPolicy): Promise<SandboxCommandResult> {
     assertAllowedCommand(command, policy);
     const startedAt = Date.now();
+    const containerCommand = command.replace(/^npm\.cmd(?=\s|$)/, 'npm');
     const result = await runProcess(this.dockerBinary, [
       'run', '--rm', '--init', '--network', 'none', '--read-only',
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '--pids-limit', '128', '--memory', '1024m', '--cpus', '1',
       '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
       '--mount', `type=bind,src=${this.workspacePath},dst=/workspace,readonly`,
-      '--workdir', '/workspace', this.image, 'sh', '-lc', command
+      '--workdir', '/workspace', this.image, 'sh', '-lc', containerCommand
     ], policy.repairBudget.maxWallSeconds * 1000);
     return { command, durationMs: Date.now() - startedAt, ...result };
   }
