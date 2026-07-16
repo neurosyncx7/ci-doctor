@@ -10,7 +10,7 @@
     "dev:api": "node --env-file=.env --import tsx --watch apps/api/src/server.ts",
     "start:api": "node --enable-source-maps apps/api/dist/server.js",
     "build:api": "tsc --project apps/api/tsconfig.json",
-    "test:api": "node --import tsx --test apps/api/test/github-webhook.test.ts apps/api/test/log-redaction.test.ts apps/api/test/failure-clustering.test.ts apps/api/test/diagnosis-contract.test.ts apps/api/test/repair-policy.test.ts apps/api/test/docker-sandbox.integration.test.ts",
+    "test:api": "node --import tsx --test apps/api/test/github-webhook.test.ts apps/api/test/log-redaction.test.ts apps/api/test/failure-clustering.test.ts apps/api/test/diagnosis-contract.test.ts apps/api/test/repair-policy.test.ts apps/api/test/repair-attempt-loop.test.ts apps/api/test/docker-sandbox.integration.test.ts",
     "test:docker": "node --env-file=.env --import tsx --test apps/api/test/docker-sandbox.integration.test.ts",
     "worker:ingest": "node --env-file=.env --import tsx apps/api/src/workers/ingest-server.ts",
     "worker:diagnose": "node --env-file=.env --import tsx apps/api/src/workers/diagnosis-server.ts",

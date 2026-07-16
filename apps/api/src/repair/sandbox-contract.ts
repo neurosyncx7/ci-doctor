@@ -9,6 +9,7 @@ export type SandboxCommandResult = {
 };
 
 export interface RepairSandbox {
+  applyPatch(patch: string, policy: RepairPolicy): Promise<void>;
   execute(command: string, policy: RepairPolicy): Promise<SandboxCommandResult>;
   readDiff(): Promise<string>;
   destroy(): Promise<void>;
@@ -21,5 +22,16 @@ export type RepairTask = {
   sourceSha: string;
   policy: RepairPolicy;
   diagnosis: string;
+  repositoryContext: string;
   requiredTests: { targeted: string; fullSuite: string };
 };
+
+export type RepairProposal = {
+  visibleSummary: string;
+  patch: string;
+  regressionTestIntent: string;
+};
+
+export interface RepairAgent {
+  propose(task: RepairTask, priorFailures: readonly string[]): Promise<RepairProposal>;
+}

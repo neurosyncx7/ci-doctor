@@ -4,6 +4,7 @@ node_modules/
 .env.*
 !.env.example
 .secrets/
+.repair-runs/
 coverage/
 .next/
 dist/
