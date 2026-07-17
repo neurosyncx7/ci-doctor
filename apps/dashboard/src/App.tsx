@@ -5,6 +5,7 @@ import {
   RefreshCw, ShieldCheck, TerminalSquare, X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { recordedIncidentProof } from './incident-proof';
 type EventRecord = { sequence: number; type: string; at: string; payload: Record<string, unknown> };
 type Diagnosis = { testName: string; state: string; visibleSummary: string | null; nextAction: string | null };
 type RepairAttempt = {
@@ -69,6 +70,7 @@ export function App() {
   const [incident, setIncident] = useState<LiveIncident | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recordedProof, setRecordedProof] = useState(false);
   const [inspectedStage, setInspectedStage] = useState<number | null>(null);
   const apiOrigin = (import.meta.env.VITE_API_ORIGIN ?? '').replace(/\/+$/, '');
   const apiPath = (path: string) => `${apiOrigin}${path}`;
@@ -77,17 +79,17 @@ export function App() {
     setLoading(true);
     try {
       const response = await fetch(apiPath('/api/v1/dashboard/incidents/latest'), { headers: { accept: 'application/json' } });
-      if (response.status === 404) {
-        setIncident(null);
-        setError(null);
-        return;
-      }
+      if (response.status === 404) throw new Error('No live incident endpoint is available');
       if (!response.ok) throw new Error(`API returned ${response.status}`);
       setIncident(await response.json() as LiveIncident);
+      setRecordedProof(false);
       setError(null);
     } catch {
-      setError('The local CI Doctor API is not reachable. The interface is showing no synthetic run.');
-      setIncident(null);
+      // The permanent GitHub Pages build has no backend. It may show this immutable, clearly labelled,
+      // safe export of an actual validated run; the local console always prefers live ledger data.
+      setIncident(recordedIncidentProof as unknown as LiveIncident);
+      setRecordedProof(true);
+      setError('Recorded verified proof — live workers are offline on this public snapshot.');
     } finally {
       setLoading(false);
     }
@@ -135,7 +137,7 @@ export function App() {
         </nav>
         <button className="connection-chip" onClick={() => void load()} aria-label="Refresh CI Doctor connection">
           <span className={`status-dot ${incident ? 'online' : error ? 'offline' : 'pending'}`} />
-          {loading ? 'SYNCING' : incident ? 'LIVE DATA' : error ? 'API OFFLINE' : 'NO INCIDENT'}
+          {loading ? 'SYNCING' : recordedProof ? 'RECORDED PROOF' : incident ? 'LIVE DATA' : error ? 'API OFFLINE' : 'NO INCIDENT'}
           <RefreshCw size={13} />
         </button>
       </header>
