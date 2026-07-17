@@ -686,3 +686,34 @@ html, body, #root { width: 100%; max-width: 100%; overflow-x: clip; }
   .journey-section, .authority-slab { width: min(calc(100% - 32px), 760px); }
   .stage-node { min-height: 82px; }
 }
+/* Home film is the canvas: never bury it beneath a page-sized opaque layer. */
+.app-shell--home .home-page::before {
+  display: none;
+}
+
+.app-shell--home .hero-sticky {
+  background: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.app-shell--home .hero-copy,
+.app-shell--home .hero-metrics,
+.app-shell--home .flight-copy {
+  text-shadow: 0 3px 30px rgba(2, 3, 9, 0.86);
+}
+
+.app-shell--home .hero-copy h1 {
+  text-shadow: 0 6px 52px rgba(0, 0, 0, 0.78);
+}
+
+/* Individual readable surfaces, not one large dark box. */
+.app-shell--home .flight-narrative {
+  background: linear-gradient(135deg, rgba(11, 7, 19, 0.42), rgba(25, 13, 34, 0.20));
+  border-color: rgba(255, 219, 177, 0.18);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+.app-shell--home .stage-rail {
+  background: linear-gradient(135deg, rgba(7, 8, 18, 0.20), rgba(20, 10, 28, 0.08));
+  backdrop-filter: blur(10px) saturate(130%);
+}
