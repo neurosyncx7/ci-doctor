@@ -1,0 +1,48 @@
+name: Publish CI Doctor dashboard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/dashboard/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/publish-dashboard.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DASHBOARD_PUBLIC_BASE: /ci-doctor/
+      VITE_API_ORIGIN: ${{ vars.CI_DOCTOR_API_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:dashboard
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/dashboard/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

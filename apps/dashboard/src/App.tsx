@@ -1,67 +1,370 @@
-import { motion, AnimatePresence } from 'motion/react';
-import { Check, ChevronRight, ExternalLink, FileCode2, GitPullRequest, LockKeyhole, ShieldCheck, TerminalSquare, ArrowUpRight, RefreshCw, Activity, DatabaseZap } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
-
-const IncidentCore = lazy(() => import('./IncidentCore').then((module) => ({ default: module.IncidentCore })));
-type Incident = {
-  incidentId: string; status: string; repository: string; workflow: string;
-  pullRequest: { number: number; url: string }; sourceSha: string; repairSha: string;
-  validation: { focused: string; fullSuite: string; sandbox: string };
-  failures: ReadonlyArray<{ label: string; detail: string; patch: string }>;
-  safeguards: readonly string[];
+import { AnimatePresence, motion } from 'motion/react';
+import {
+  Activity, ArrowUpRight, Check, ChevronRight, CircleAlert, DatabaseZap,
+  ExternalLink, FileSearch, GitPullRequest, Layers3, LockKeyhole,
+  RefreshCw, ShieldCheck, TerminalSquare, X
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+type EventRecord = { sequence: number; type: string; at: string; payload: Record<string, unknown> };
+type Diagnosis = { testName: string; state: string; visibleSummary: string | null; nextAction: string | null };
+type RepairAttempt = {
+  attempt: number; state: string; reasonCode: string | null; patchSha256: string | null;
+  targetedExitCodes: number[] | null; fullSuiteExitCode: number | null; visibleSummary: string;
 };
-type View = 'landing' | 'console' | 'runbook' | 'security';
-const stages = ['Failure detected', 'Evidence sealed', 'Diagnosis formed', 'Repair validated', 'PR opened'];
-const consoleStageDetails = [
-  { badge: 'SIGNAL INTAKE', title: 'Four failures became one controlled incident.', copy: 'The signed workflow event is deduplicated before any work begins. Repeated deliveries cannot trigger duplicate repairs.', artifact: 'workflow.failure.detected', action: 'Evidence capture locked' },
-  { badge: 'EVIDENCE VAULT', title: 'The failure is preserved without exposing secrets.', copy: 'Logs are redacted, encrypted, hashed, and attached to the incident. The dashboard sees a safe summary, never raw credentials.', artifact: 'artifact: job_log · AES-256-GCM', action: 'Open redaction policy' },
-  { badge: 'ROOT-CAUSE MAP', title: 'Independent problems stay independent.', copy: 'CI Doctor clustered four signatures and linked each diagnosis to an immutable evidence hash before a patch was allowed.', artifact: '4 failure clusters · 4 diagnoses', action: 'Inspect patch explorer' },
-  { badge: 'SEALED VALIDATION', title: 'A patch is only a claim until it passes.', copy: 'The repair ran focused tests and the full suite in a disposable Docker workspace with no network and strict resource limits.', artifact: 'focused: 4/4 · suite: 8/8', action: 'Validation transcript recorded' },
-  { badge: 'BROKERED DELIVERY', title: 'The sandbox never touched GitHub.', copy: 'A separate idempotent broker received only validated file content and opened the reviewable pull request.', artifact: 'PR #3 · GitHub Actions: passed', action: 'Open verified pull request' }
-] as const;
-const runbookSteps = [
-  { title: 'Signed GitHub failure event', input: 'GitHub sends a workflow_run event with an HMAC signature.', guard: 'Invalid signatures and repositories outside the allowlist are rejected before storage.', output: 'One deduplicated incident is created.' },
-  { title: 'Encrypted evidence bundle', input: 'CI job logs, failed job metadata, and the triggering diff are collected.', guard: 'Secrets are redacted before AES-256-GCM encryption; raw logs never reach the dashboard.', output: 'Evidence artifacts with stable hashes.' },
-  { title: 'Parallel failure clusters', input: 'The log bundle is split into independent error signatures.', guard: 'Each cluster retains an incident and artifact reference so work cannot cross-contaminate.', output: 'Separate diagnosis jobs for independent failures.' },
-  { title: 'Patch proposal under path policy', input: 'The repair planner receives diagnosis plus restricted repository context.', guard: 'Only src/** and test/** are permitted. Workflows, packages, and policy files are denied.', output: 'A bounded unified patch plus regression-test intent.' },
-  { title: 'Docker validation: focused + suite', input: 'The patch is applied to a disposable checkout.', guard: 'No network, read-only container root, dropped capabilities, CPU/memory/PID limits, repeat-patch stop.', output: 'Recorded focused-test and full-suite exit codes.' },
-  { title: 'Idempotent broker opens PR', input: 'Only validated file content reaches the GitHub broker.', guard: 'The sandbox never sees GitHub credentials; the broker reuses a deterministic branch on retry.', output: 'A reviewable PR and GitHub Actions result.' }
-] as const;
+type LiveIncident = {
+  incidentId: string; state: string; repository: string; workflow: string; sourceSha: string;
+  diagnoses: Diagnosis[];
+  repair: { state: string; branchName: string | null; pullRequest: { number: number; url: string } | null; attempts: RepairAttempt[] } | null;
+  events: EventRecord[];
+};
+type View = 'home' | 'console' | 'runbook' | 'security';
+type StageState = 'complete' | 'active' | 'waiting' | 'blocked';
+type Stage = { id: string; title: string; eventTypes: string[]; eyebrow: string; description: string; boundary: string };
 
+const stages: Stage[] = [
+  { id: 'capture', title: 'Capture', eventTypes: ['workflow.failure.detected'], eyebrow: 'SIGNED INTAKE', description: 'A failed workflow enters only after its GitHub signature and repository scope are accepted.', boundary: 'Untrusted or duplicate deliveries do not create a second repair.' },
+  { id: 'evidence', title: 'Seal evidence', eventTypes: ['evidence.ingested', 'failure.clustered'], eyebrow: 'EVIDENCE VAULT', description: 'Safe evidence metadata is persisted before diagnosis work is published.', boundary: 'The console never receives raw logs or secret-like content.' },
+  { id: 'diagnosis', title: 'Diagnose', eventTypes: ['diagnosis.proposed'], eyebrow: 'CAUSAL MAP', description: 'Codex returns a structured, evidence-linked diagnosis rather than a free-form chat answer.', boundary: 'A diagnosis cannot mark an incident repaired.' },
+  { id: 'validate', title: 'Patch and validate', eventTypes: ['repair.attempt.recorded'], eyebrow: 'SEALED SANDBOX', description: 'A proposed diff must survive path policy, focused tests, and the complete suite in a network-sealed Docker workspace.', boundary: 'Repeated patches, protected paths, and budget overrun stop the loop.' },
+  { id: 'deliver', title: 'Broker delivery', eventTypes: ['pull_request.opened'], eyebrow: 'IDEMPOTENT DELIVERY', description: 'Only validated file content crosses into the GitHub write broker.', boundary: 'The sandbox never holds a GitHub write credential.' }
+];
+
+const terminalStates = new Set(['NEEDS_REVIEW', 'VALIDATION_FAILED', 'BUDGET_EXHAUSTED']);
+
+function safeView(value: string): View {
+  return ['home', 'console', 'runbook', 'security'].includes(value) ? value as View : 'home';
+}
+
+function useGlassInteractions() {
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-glass-tilt]') : null;
+      if (!target) return;
+      const bounds = target.getBoundingClientRect();
+      const x = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
+      const y = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height));
+      target.style.setProperty('--mouse-x', `${x * 100}%`);
+      target.style.setProperty('--mouse-y', `${y * 100}%`);
+      target.style.setProperty('--tilt-x', `${(0.5 - y) * 4}deg`);
+      target.style.setProperty('--tilt-y', `${(x - 0.5) * 5}deg`);
+    };
+    const onLeave = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-glass-tilt]') : null;
+      if (!target || target.contains(event.relatedTarget as Node | null)) return;
+      target.style.removeProperty('--mouse-x');
+      target.style.removeProperty('--mouse-y');
+      target.style.removeProperty('--tilt-x');
+      target.style.removeProperty('--tilt-y');
+    };
+    document.addEventListener('pointermove', onMove, { passive: true });
+    document.addEventListener('pointerout', onLeave, { passive: true });
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerout', onLeave);
+    };
+  }, []);
+}
 export function App() {
-  const [view, setView] = useState<View>('landing');
-  const [runbookStep, setRunbookStep] = useState<number | null>(null);
+  const [view, setView] = useState<View>(() => safeView(window.location.hash.replace('#', '')));
+  const [incident, setIncident] = useState<LiveIncident | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [inspectedStage, setInspectedStage] = useState<number | null>(null);
-  const [incident, setIncident] = useState<Incident | null>(null);
-  const [error, setError] = useState('');
-  const [stage, setStage] = useState(4); const [selected, setSelected] = useState(1);
-  const load = async () => { setError(''); try { const response = await fetch('/api/v1/dashboard/verified-incident'); if (!response.ok) throw new Error(); setIncident(await response.json()); } catch { setError('CI Doctor API is offline. Start the full console with npm.cmd run dev:console.'); } };
+  const apiOrigin = (import.meta.env.VITE_API_ORIGIN ?? '').replace(/\/+$/, '');
+  const apiPath = (path: string) => `${apiOrigin}${path}`;
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(apiPath('/api/v1/dashboard/incidents/latest'), { headers: { accept: 'application/json' } });
+      if (response.status === 404) {
+        setIncident(null);
+        setError(null);
+        return;
+      }
+      if (!response.ok) throw new Error(`API returned ${response.status}`);
+      setIncident(await response.json() as LiveIncident);
+      setError(null);
+    } catch {
+      setError('The local CI Doctor API is not reachable. The interface is showing no synthetic run.');
+      setIncident(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => { void load(); }, []);
   useEffect(() => {
-    const stream = new EventSource('/api/v1/dashboard/stream');
+    const timer = window.setInterval(() => { void load(); }, 2_500);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const stream = new EventSource(apiPath('/api/v1/dashboard/stream'));
+    stream.onmessage = () => { void load(); };
     stream.addEventListener('incident.accepted', () => { void load(); });
     return () => stream.close();
   }, []);
-  const go = (next: View) => { setView(next); if (next !== 'runbook') setRunbookStep(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  return <main className="shell">
-    <div className="ambient ambient-one" /><div className="ambient ambient-two" />
-    <nav className="topbar"><button className="brand nav-button" onClick={() => go('landing')}><span className="brand-mark"><ShieldCheck size={17} /></span><span>CI DOCTOR</span><small>autonomous CI repair</small></button><div className="nav-links">{(['console','runbook','security'] as View[]).map((item) => <button key={item} className={view === item ? 'nav-active' : ''} onClick={() => go(item)}>{item}</button>)}</div><div className="top-status"><span className="pulse" /> API {incident ? 'CONNECTED' : 'WAITING'}</div></nav>
-    {error && <div className="api-banner"><DatabaseZap size={15}/>{error}<button onClick={() => void load()}><RefreshCw size={13}/>Retry</button></div>}
-    <AnimatePresence mode="wait">
-      {view === 'landing' && <Landing key="landing" incident={incident} go={go} />}
-      {view === 'console' && <Console key="console" incident={incident} stage={stage} setStage={setStage} selected={selected} setSelected={setSelected} onInspect={setInspectedStage} />}
-      {view === 'runbook' && (runbookStep === null ? <Runbook key="runbook" go={go} onSelect={setRunbookStep} /> : <RunbookDetail key={`step-${runbookStep}`} step={runbookSteps[runbookStep]!} index={runbookStep} onBack={() => setRunbookStep(null)} />)}
-      {view === 'security' && <Security key="security" incident={incident} />}
-    </AnimatePresence>
-    <AnimatePresence>{inspectedStage !== null && <StageLens stage={inspectedStage} onClose={() => setInspectedStage(null)} onSelect={(index) => { setStage(index); setInspectedStage(index); }} />}</AnimatePresence>
-  </main>;
+  useEffect(() => {
+    const onHashChange = () => setView(safeView(window.location.hash.replace('#', '')));
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const go = (next: View) => {
+    window.location.hash = next;
+    setView(next);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  return (
+    <main className={`app-shell app-shell--${view}`}>
+            <ScrollVideo />
+<div className="cosmic-blob blob-cyan" aria-hidden="true" />
+      <div className="cosmic-blob blob-violet" aria-hidden="true" />
+      <div className="cosmic-blob blob-amber" aria-hidden="true" />
+      <div className="noise-layer" aria-hidden="true" />
+      <header className="site-nav">
+        <button className="brand-button" onClick={() => go('home')} aria-label="CI Doctor home">
+          <span className="brand-sigil"><ShieldCheck size={18} /></span>
+          <span><b>CI DOCTOR</b><small>verified autonomy</small></span>
+        </button>
+        <nav aria-label="Primary navigation">
+          {(['home', 'console', 'runbook', 'security'] as View[]).map((item) => (
+            <button key={item} className={view === item ? 'nav-selected' : ''} onClick={() => go(item)}>{item}</button>
+          ))}
+        </nav>
+        <button className="connection-chip" onClick={() => void load()} aria-label="Refresh CI Doctor connection">
+          <span className={`status-dot ${incident ? 'online' : error ? 'offline' : 'pending'}`} />
+          {loading ? 'SYNCING' : incident ? 'LIVE DATA' : error ? 'API OFFLINE' : 'NO INCIDENT'}
+          <RefreshCw size={13} />
+        </button>
+      </header>
+
+      {error && <section className="api-notice" role="status"><CircleAlert size={16}/><span>{error}</span><button onClick={() => void load()}>Retry connection</button></section>}
+
+      <AnimatePresence mode="wait">
+        {view === 'home' && <Landing key="home" incident={incident} loading={loading} onConsole={() => go('console')} onRunbook={() => go('runbook')} onInspect={setInspectedStage} />}
+        {view === 'console' && <Console key="console" incident={incident} loading={loading} onInspect={setInspectedStage} onRefresh={() => void load()} />}
+        {view === 'runbook' && <Runbook key="runbook" incident={incident} onInspect={setInspectedStage} onConsole={() => go('console')} />}
+        {view === 'security' && <Security key="security" incident={incident} onInspect={setInspectedStage} onConsole={() => go('console')} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {inspectedStage !== null && <StageSheet stageIndex={inspectedStage} incident={incident} onClose={() => setInspectedStage(null)} />}
+      </AnimatePresence>
+    </main>
+  );
 }
 
-function Landing({ incident, go }: { incident: Incident | null; go: (view: View) => void }) { return <motion.section className="landing-wrap" initial={{opacity:0,y:15}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-12}}><section className="landing"><div className="landing-copy"><p className="eyebrow"><span/> CI DOCTOR / OPERATOR EDITION</p><h1>Make every<br/><em>red check</em><br/>explain itself.</h1><p className="lede">A governed repair agent that converts a real CI failure into an evidence-bound, sandbox-validated pull request—without giving code execution a GitHub write token.</p><div className="landing-actions"><button className="primary" onClick={() => go('console')}>Open incident console <ArrowUpRight size={16}/></button><button className="secondary" onClick={() => go('runbook')}>How the repair loop works</button></div><div className="trust-row"><span><Check size={14}/> Signed webhooks</span><span><Check size={14}/> Network-sealed runs</span><span><Check size={14}/> PR broker isolation</span></div></div><div className="landing-core glass"><div className="core-label"><span>LIVE VERIFIED RUN</span><b>{incident?.status ?? 'CONNECTING'}</b></div><Suspense fallback={<div className="core-loading">Loading incident core…</div>}><IncidentCore/></Suspense><div className="core-footer"><span className="pulse"/>{incident ? `${incident.validation.fullSuite} complete suite passed` : 'Awaiting local API'}<Activity size={15}/></div></div></section><section className="flight-path"><div className="flight-copy"><p className="eyebrow"><span/> SCROLL THE REPAIR PATH</p><h2>A controlled system,<br/>not a prompt box.</h2><p>Each phase has a different authority. Scroll through the boundaries that make the result trustworthy.</p></div><div className="flight-stack"><article className="flight-card card-one"><span className="card-index">01</span><b>Capture</b><p>Signed webhook, encrypted logs, immutable evidence.</p><ShieldCheck size={20}/></article><article className="flight-card card-two"><span className="card-index">02</span><b>Reason</b><p>Structured diagnosis tied to artifact hashes—not hidden guesses.</p><Activity size={20}/></article><article className="flight-card card-three"><span className="card-index">03</span><b>Prove</b><p>Network-sealed Docker validation before the broker can publish.</p><TerminalSquare size={20}/></article></div></section></motion.section> }
+function ScrollVideo() {
+  return <video className="accretion-video" autoPlay muted loop playsInline preload="auto" aria-hidden="true">
+    <source src={`${import.meta.env.BASE_URL}assets/cosmic-transitions.mp4`} type="video/mp4" />
+  </video>;
+}
+function Landing({ incident, loading, onConsole, onRunbook, onInspect }: { incident: LiveIncident | null; loading: boolean; onConsole: () => void; onRunbook: () => void; onInspect: (stage: number) => void }) {
+  const stageIndex = currentStage(incident);
+  const flightStage = Math.min(4, Math.max(1, stageIndex + 1));
+  const eventCount = incident?.events.length ?? 0;
+  const status = incident?.state ?? (loading ? 'CONNECTING' : 'AWAITING_EVENT');
+  const flightLabels = ['HERO VIEW / SIGNAL LOCKED', 'GRAVITATIONAL WARP / LENSING PEAK', 'CINEMATIC FLY-THROUGH / EVENT HORIZON', 'AMBIENT MATRIX / EVIDENCE FIELD'];
 
-function Console({ incident, stage, setStage, selected, setSelected, onInspect }: { incident: Incident | null; stage: number; setStage: (i:number)=>void; selected:number; setSelected:(i:number)=>void; onInspect:(i:number)=>void }) { if (!incident) return <section className="empty-state glass"><Activity size={24}/><h2>Operator console is waiting for the local API.</h2><p>Run <code>npm.cmd run dev:console</code> from the project folder, then retry.</p></section>; const f = incident.failures[selected]!; const current = consoleStageDetails[stage]!; const inspect = (i:number) => { setStage(i); onInspect(i); }; return <motion.section initial={{opacity:0}} animate={{opacity:1}} className="console"><div className="console-head"><div><p className="eyebrow"><span/> VERIFIED INCIDENT</p><h1>{incident.repository}</h1><p>{incident.workflow} · <span className="mono">{incident.incidentId}</span></p></div><button className="repo-chip" onClick={() => window.open(incident.pullRequest.url, '_blank', 'noopener,noreferrer')}><GitPullRequest size={15}/>Open PR #{incident.pullRequest.number}<ExternalLink size={13}/></button></div><section className="metric-row"><Metric value={incident.validation.focused} label="Focused tests"/><Metric value={incident.validation.fullSuite} label="Full suite"/><Metric value="0" label="Secrets exposed"/><Metric value="5" label="Policy gates"/></section><section className="command-grid"><div className="timeline-card glass"><div className="section-heading"><div><p className="eyebrow">AUTONOMOUS RUN</p><h2>Click a stage to inspect it</h2></div><span className="mono">{incident.status}</span></div><div className="timeline">{stages.map((title,i)=><button key={title} onClick={()=>inspect(i)} className={`stage ${i===stage?'active':''} ${i<stage?'complete':''}`}><span className="stage-dot">{i<stage?<Check size={12}/>:String(i+1).padStart(2,'0')}</span><span><b>{title}</b><small>{['4 independent signatures clustered','Logs redacted and encrypted','Evidence-linked hypotheses only','Docker sandbox and test gates','GitHub Actions check passed'][i]}</small></span><ChevronRight size={16}/></button>)}</div></div><div className="evidence-card glass"><div className="section-heading"><div><p className="eyebrow">PATCH EXPLORER</p><h2>Root causes, not guesses</h2></div><FileCode2 size={19}/></div><div className="failure-tabs">{incident.failures.map((x,i)=><button key={x.label} className={i===selected?'selected':''} onClick={()=>setSelected(i)}>{String(i+1).padStart(2,'0')}</button>)}</div><div className="patch-preview"><div><span className="mono">{f.label}</span><p>{f.detail}</p></div><pre><i>+</i>{f.patch}</pre></div><div className="guardrail"><LockKeyhole size={15}/><span>Autonomous writes were limited to <b>src/**</b> and <b>test/**</b>. Workflow files were denied.</span></div></div></section><section className="mission-panel glass"><div><p className="eyebrow"><span/> {current.badge}</p><h2>{current.title}</h2><p>{current.copy}</p></div><div className="mission-artifact"><span>RECORDED ARTIFACT</span><b className="mono">{current.artifact}</b><button onClick={()=>inspect(stage)}>{current.action}<ChevronRight size={15}/></button></div></section><section className="proof-strip glass"><div className="proof-title"><TerminalSquare size={18}/><span><b>Validation ledger</b><small>{incident.validation.sandbox}</small></span></div><div className="ledger-item"><span>Base</span><b className="mono">{incident.sourceSha}</b></div><div className="ledger-line"/><div className="ledger-item"><span>Repair</span><b className="mono success">{incident.repairSha}</b></div><div className="ledger-line"/><div className="ledger-item"><span>Result</span><b className="success">PR #{incident.pullRequest.number} · CHECK PASSED</b></div></section></motion.section> }
-function StageLens({stage,onClose,onSelect}:{stage:number,onClose:()=>void,onSelect:(i:number)=>void}) { const detail=consoleStageDetails[stage]!; return <motion.div className="stage-lens" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={onClose}><motion.article className="lens-card glass" initial={{y:30,scale:.96}} animate={{y:0,scale:1}} exit={{y:25,scale:.97}} onClick={(event)=>event.stopPropagation()}><button className="lens-close" onClick={onClose}>×</button><p className="eyebrow"><span/> {detail.badge}</p><div className="lens-number">{String(stage+1).padStart(2,'0')}</div><h2>{detail.title}</h2><p>{detail.copy}</p><div className="lens-artifact"><span>RECORDED ARTIFACT</span><b className="mono">{detail.artifact}</b></div><div className="lens-steps">{stages.map((title,index)=><button key={title} className={index===stage?'lens-active':''} onClick={()=>onSelect(index)}>{String(index+1).padStart(2,'0')} {title}</button>)}</div></motion.article></motion.div> }
-function Metric({value,label}:{value:string,label:string}) { return <div className="metric glass"><b>{value}</b><span>{label}</span></div> }
-function Runbook({go,onSelect}:{go:(view:View)=>void,onSelect:(index:number)=>void}) { return <motion.section className="page-grid" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}}><div><p className="eyebrow"><span/> THE JOB, NOT A CHAT</p><h1>One bounded<br/>repair loop.</h1><p className="lede">CI Doctor gives each model a narrow responsibility, records every state change, and stops before a safe boundary is crossed.</p><button className="primary" onClick={()=>go('console')}>See verified result <ArrowUpRight size={16}/></button></div><div className="flow-panel glass">{runbookSteps.map((step,i)=><button className="flow-step flow-button" key={step.title} onClick={()=>onSelect(i)}><span>{String(i+1).padStart(2,'0')}</span><b>{step.title}</b><ChevronRight size={15}/></button>)}</div></motion.section> }
-function RunbookDetail({step,index,onBack}:{step:(typeof runbookSteps)[number],index:number,onBack:()=>void}) { return <motion.section className="detail-page" initial={{opacity:0,x:18}} animate={{opacity:1,x:0}}><button className="back-button" onClick={onBack}>← Back to repair map</button><div className="detail-index">STEP {String(index+1).padStart(2,'0')} / 06</div><h1>{step.title}</h1><p className="lede">This stage has a deliberate job and a hard safety boundary. It cannot silently advance on a model claim alone.</p><div className="detail-grid"><article className="detail-card glass"><span>INPUT</span><p>{step.input}</p></article><article className="detail-card glass safeguard-card"><span>SAFETY CHECK</span><p>{step.guard}</p></article><article className="detail-card glass"><span>RECORDED OUTPUT</span><p>{step.output}</p></article></div><div className="detail-footer glass"><ShieldCheck size={18}/><span>Every action is correlated to the incident, persisted as an event, and visible to the reviewer.</span></div></motion.section> }
-function Security({incident}:{incident:Incident|null}) { return <motion.section className="page-grid" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}}><div><p className="eyebrow"><span/> SECURITY BY DESIGN</p><h1>Execution is<br/><em>not authority.</em></h1><p className="lede">The sandbox can repair code, but cannot reach GitHub. The broker can write a PR, but cannot execute repository code.</p></div><div className="flow-panel glass">{(incident?.safeguards ?? ['Loading verified safeguards…']).map((item,i)=><div className="flow-step" key={item}><span><ShieldCheck size={15}/></span><b>{item}</b><Check size={15}/></div>)}</div></motion.section> }
+  return (
+    <motion.section className="home-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <section className="hero-journey">
+        <div className="hero-sticky">
+          <div className="cosmic-hud cosmic-hud-top"><span>STATE {String(flightStage).padStart(2, '0')} / {flightLabels[flightStage - 1]}</span><b>{humanize(status)}</b></div>
+          <div className="cosmic-hud cosmic-hud-bottom"><span className="status-dot online" /><span>{incident ? `${incident.repository} / ${incident.workflow}` : 'Waiting for a signed GitHub failure'}</span><small>SCROLL DRIVEN</small></div>
+          <ol className="chapter-rail" aria-label="Cinematic workflow chapters">
+            {['Failure intake', 'Evidence seal', 'Sandbox proof', 'Broker delivery'].map((label, index) => <li key={label} className={index + 1 === flightStage ? 'chapter-active' : index + 1 < flightStage ? 'chapter-complete' : ''}><span>{String(index + 1).padStart(2, '0')}</span><b>{label}</b></li>)}
+          </ol>
+          <div className="hero-grid">
+            <div className="hero-copy">
+              <p className="eyebrow"><span /> CI DOCTOR / INCIDENT CONTROL PLANE</p>
+              <h1>Give CI failures<br /><em>a path to proof.</em></h1>
+              <p className="hero-lede">A real, event-driven repair system: signed failure in, evidence-bound diagnosis, sealed validation, reviewable pull request out.</p>
+              <div className="hero-actions">
+                <button className="button-primary" onClick={onConsole}>Enter live console <ArrowUpRight size={16}/></button>
+                <button className="button-secondary" onClick={onRunbook}>Read the safety map</button>
+              </div>
+              <dl className="hero-metrics">
+                <div><dt>Incident</dt><dd>{incident ? compact(incident.incidentId) : loading ? 'syncing' : 'none'}</dd></div>
+                <div><dt>Recorded events</dt><dd>{eventCount}</dd></div>
+                <div><dt>Write authority</dt><dd>broker only</dd></div>
+              </dl>
+            </div>
+
+          </div>
+<motion.article key={flightStage} className="flight-narrative" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .28 }}>
+            <span>STATE {String(flightStage).padStart(2, '0')} / {flightLabels[flightStage - 1]}</span>
+            {flightStage === 1 && <><h2>Signed failure.<br />A real case begins.</h2><p>GitHub sends a verified CI failure; CI Doctor records the event before any agent work starts.</p></>}
+            {flightStage === 2 && <><h2>Evidence enters<br />the gravity well.</h2><p>Logs, diff context, and safe source evidence are sealed into an immutable diagnostic bundle.</p></>}
+            {flightStage === 3 && <><h2>Proposal meets<br />a sealed sandbox.</h2><p>Codex can propose a constrained repair. Docker independently applies and validates it without network or GitHub credentials.</p></>}
+            {flightStage === 4 && <><h2>Proof crosses<br />the authority boundary.</h2><p>Only recorded passing validation can reach the idempotent GitHub pull-request broker.</p></>}
+          </motion.article>
+          <div className="scroll-prompt"><span>SCROLL TO TRACE THE AUTHORITY BOUNDARIES</span><i /></div>
+        </div>
+        <div className="journey-spacer" aria-hidden="true">
+          {[1, 2, 3, 4].map((step) => <div key={step} className={`flight-section flight-${step}`} />)}
+        </div>
+      </section>
+
+      <section className="journey-section" data-glass-tilt>
+        <div className="section-label"><span>01</span><p>THE SIGNAL BECOMES A CASE</p></div>
+        <div className="journey-copy"><h2>Every transition<br />has a witness.</h2><p>CI Doctor never advances because an agent says it is done. It advances only when an append-only event or recorded command result says so.</p></div>
+        <StageRail incident={incident} activeIndex={stageIndex} onInspect={onInspect} />
+      </section>
+
+      <section className="authority-slab" data-glass-tilt>
+        <div><p className="eyebrow"><span /> CLEAR SEPARATION OF POWERS</p><h2>The model can propose.<br />It cannot publish.</h2></div>
+        <div className="authority-path">
+          <article data-glass-tilt><span>01</span><b>Codex</b><p>Structured diagnosis and constrained diff proposal.</p></article>
+          <article data-glass-tilt><span>02</span><b>Docker</b><p>Network-sealed patch and test verification.</p></article>
+          <article data-glass-tilt><span>03</span><b>GitHub broker</b><p>Idempotent PR creation from validated file content only.</p></article>
+        </div>
+      </section>
+    </motion.section>
+  );
+}
+
+function Console({ incident, loading, onInspect, onRefresh }: { incident: LiveIncident | null; loading: boolean; onInspect: (stage: number) => void; onRefresh: () => void }) {
+  const [selectedDiagnosis, setSelectedDiagnosis] = useState(0);
+  const stageIndex = currentStage(incident);
+  const selected = incident?.diagnoses[Math.min(selectedDiagnosis, Math.max(0, (incident?.diagnoses.length ?? 1) - 1))];
+  const attempts = incident?.repair?.attempts ?? [];
+
+  if (!incident) {
+    return <EmptyState title={loading ? 'Synchronizing the live event ledger' : 'No live incident is recorded'} copy={loading ? 'The console is waiting for the API response.' : 'Trigger a real failed workflow. This interface deliberately does not substitute a fabricated incident.'} onRefresh={onRefresh} />;
+  }
+
+  return (
+    <motion.section className="console-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+      <header className="console-header">
+        <div><p className="eyebrow"><span /> LIVE INCIDENT / {humanize(incident.state)}</p><h1>{incident.repository}</h1><p className="console-subline">{incident.workflow} <i /> {incident.incidentId}</p></div>
+        <div className="console-actions">
+          <button className="refresh-button" onClick={onRefresh}><RefreshCw size={15} /> Refresh data</button>
+          {incident.repair?.pullRequest ? <button className="pr-button" onClick={() => window.open(incident.repair?.pullRequest?.url, '_blank', 'noopener,noreferrer')}><GitPullRequest size={16}/>Open PR #{incident.repair.pullRequest.number}<ExternalLink size={13}/></button> : <span className="locked-pr"><LockKeyhole size={14}/>PR locked until validation</span>}
+        </div>
+      </header>
+
+      <section className="status-ribbon">
+        <Metric label="Workflow state" value={humanize(incident.state)} tone={incident.state} />
+        <Metric label="Evidence events" value={String(incident.events.length)} tone="positive" />
+        <Metric label="Diagnoses" value={String(incident.diagnoses.length)} tone="neutral" />
+        <Metric label="Repair attempts" value={String(attempts.length)} tone={incident.repair?.state ?? 'neutral'} />
+      </section>
+
+      <section className="console-layout">
+        <div className="stage-column glass-frame">
+          <div className="panel-heading"><div><p className="eyebrow">AUTONOMOUS RUN</p><h2>Inspect recorded stages</h2></div><Layers3 size={18}/></div>
+          <StageRail incident={incident} activeIndex={stageIndex} onInspect={onInspect} compact />
+        </div>
+        <div className="diagnosis-panel glass-frame">
+          <div className="panel-heading"><div><p className="eyebrow">EXPLAINABLE DIAGNOSIS</p><h2>Evidence, not a hidden chain of thought</h2></div><FileSearch size={18}/></div>
+          {incident.diagnoses.length > 1 && <div className="diagnosis-tabs">{incident.diagnoses.map((diagnosis, index) => <button key={`${diagnosis.testName}-${index}`} onClick={() => setSelectedDiagnosis(index)} className={index === selectedDiagnosis ? 'tab-active' : ''}>{String(index + 1).padStart(2, '0')}</button>)}</div>}
+          <article className="diagnosis-card">
+            <span>{selected?.testName ?? 'Awaiting diagnosis record'}</span>
+            <p>{selected?.visibleSummary ?? 'No safe diagnosis summary is available yet.'}</p>
+            <footer><b>Next action</b><code>{selected?.nextAction ?? 'PENDING'}</code></footer>
+          </article>
+          <p className="guardrail-note"><LockKeyhole size={14}/>Only safe evidence summaries appear here. Raw CI logs and hidden model reasoning remain outside the UI.</p>
+        </div>
+      </section>
+
+      <section className="validation-card glass-frame">
+        <div className="validation-heading"><div><p className="eyebrow"><span /> SANDBOX VALIDATION LEDGER</p><h2>A patch has to earn its way to GitHub.</h2></div><TerminalSquare size={20}/></div>
+        {attempts.length === 0 ? <p className="empty-copy">No repair attempt has been recorded. The policy and sandbox gates remain closed until one exists.</p> : <div className="attempt-grid">{attempts.map((attempt) => <article key={attempt.attempt} className={`attempt-card attempt-${attempt.state.toLowerCase()}`}><header><span>ATTEMPT {String(attempt.attempt).padStart(2, '0')}</span><b>{humanize(attempt.state)}</b></header><p>{attempt.visibleSummary}</p><dl><div><dt>Path policy</dt><dd>{attempt.reasonCode ? humanize(attempt.reasonCode) : 'accepted'}</dd></div><div><dt>Focused tests</dt><dd>{exitSummary(attempt.targetedExitCodes)}</dd></div><div><dt>Full suite</dt><dd>{exitValue(attempt.fullSuiteExitCode)}</dd></div></dl></article>)}</div>}
+      </section>
+
+      <EventLedger events={incident.events} />
+    </motion.section>
+  );
+}
+
+function Runbook({ incident, onInspect, onConsole }: { incident: LiveIncident | null; onInspect: (stage: number) => void; onConsole: () => void }) {
+  return <motion.section className="runbook-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+    <div className="runbook-intro"><p className="eyebrow"><span /> THE JOB, NOT A CHAT</p><h1>A bounded repair loop with real consequences.</h1><p>Each stage is independently inspectable, has its own authority, and stops at a hard safety boundary.</p><button className="button-primary" onClick={onConsole}>Open current incident <ArrowUpRight size={16}/></button></div>
+    <div className="runbook-map">{stages.map((stage, index) => <button key={stage.id} className="runbook-node" onClick={() => onInspect(index)}><span>{String(index + 1).padStart(2, '0')}</span><div><small>{stage.eyebrow}</small><b>{stage.title}</b><p>{stage.description}</p></div><ChevronRight size={18}/></button>)}</div>
+    <section className="runbook-footnote glass-frame"><Activity size={18}/><p>{incident ? `The current incident has ${incident.events.length} persisted events. Select a stage to inspect only its safe, recorded evidence.` : 'No incident is being simulated. Once GitHub sends a signed failure, its persisted event trail will appear here.'}</p></section>
+  </motion.section>;
+}
+
+function Security({ incident, onInspect, onConsole }: { incident: LiveIncident | null; onInspect: (stage: number) => void; onConsole: () => void }) {
+  const facts = [
+    ['Evidence boundary', 'Raw logs are redacted before persistence and encrypted as artifacts.'],
+    ['Execution boundary', 'Untrusted checkout code runs only in a disposable Docker sandbox with no network.'],
+    ['Write boundary', 'GitHub credentials live in an idempotent broker, never in the sandbox or model context.'],
+    ['Autonomy boundary', 'Protected paths, repeated patches, time budgets, and non-zero test exits stop the loop.']
+  ];
+  return <motion.section className="security-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+    <div className="security-orb" aria-hidden="true"><span /><i /><b /></div>
+    <div className="security-copy"><p className="eyebrow"><span /> SECURITY IS THE PRODUCT</p><h1>Useful autonomy needs a small blast radius.</h1><p>CI Doctor is designed so a model can do consequential work without receiving unrestricted code execution or GitHub write authority.</p><div className="security-actions"><button className="button-primary" onClick={() => onInspect(3)}>Inspect sandbox gate</button><button className="button-secondary" onClick={onConsole}>Open live ledger</button></div></div>
+    <div className="security-grid">{facts.map(([title, copy], index) => <article key={title} className="security-fact glass-frame"><span>{String(index + 1).padStart(2, '0')}</span><h2>{title}</h2><p>{copy}</p></article>)}</div>
+  </motion.section>;
+}
+
+function StageRail({ incident, activeIndex, onInspect, compact = false }: { incident: LiveIncident | null; activeIndex: number; onInspect: (stage: number) => void; compact?: boolean }) {
+  return <div className={`stage-rail ${compact ? 'stage-rail-compact' : ''}`}>{stages.map((stage, index) => {
+    const state = stageState(incident, index, activeIndex);
+    const events = eventsForStage(incident?.events ?? [], stage);
+    return <button key={stage.id} className={`stage-node is-${state}`} data-glass-tilt onClick={() => onInspect(index)} aria-label={`Inspect ${stage.title}: ${state}`}>
+      <span className="stage-marker">{state === 'complete' ? <Check size={13} /> : String(index + 1).padStart(2, '0')}</span>
+      <span className="stage-text"><small>{state}</small><b>{stage.title}</b><i>{events.length ? `${events.length} recorded event${events.length === 1 ? '' : 's'}` : state === 'active' ? 'work in progress' : 'not recorded'}</i></span>
+      <ChevronRight size={16}/>
+    </button>;
+  })}</div>;
+}
+
+function StageSheet({ stageIndex, incident, onClose }: { stageIndex: number; incident: LiveIncident | null; onClose: () => void }) {
+  const stage = stages[stageIndex]!;
+  const activeIndex = currentStage(incident);
+  const state = stageState(incident, stageIndex, activeIndex);
+  const events = eventsForStage(incident?.events ?? [], stage);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return <motion.div className="sheet-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={onClose}>
+    <motion.article className="stage-sheet glass-frame" role="dialog" aria-modal="true" aria-labelledby="stage-sheet-title" initial={{ y: 26, scale: .985 }} animate={{ y: 0, scale: 1 }} exit={{ y: 20, scale: .985 }} onMouseDown={(event) => event.stopPropagation()}>
+      <button className="sheet-close" onClick={onClose} aria-label="Close stage inspector"><X size={20}/></button>
+      <p className="eyebrow"><span /> {stage.eyebrow}</p>
+      <div className="sheet-state"><span className={`status-dot ${state === 'complete' ? 'online' : state === 'blocked' ? 'offline' : 'pending'}`} />{state}</div>
+      <h2 id="stage-sheet-title">{stage.title}</h2>
+      <p className="sheet-description">{stage.description}</p>
+      <div className="hard-boundary"><LockKeyhole size={16}/><div><small>HARD BOUNDARY</small><b>{stage.boundary}</b></div></div>
+      <section className="recorded-section"><header><span>RECORDED SAFE ARTIFACTS</span><b>{events.length}</b></header>{events.length ? <div className="sheet-events">{events.map((event) => <article key={event.sequence}><span>{String(event.sequence).padStart(3, '0')}</span><div><b>{event.type}</b><small>{new Date(event.at).toLocaleString()}</small><code>{JSON.stringify(event.payload)}</code></div></article>)}</div> : <p className="empty-copy">{incident ? 'This stage has no recorded event for the current incident yet.' : 'No live incident is currently available. This is a capability description, not a simulated artifact.'}</p>}</section>
+    </motion.article>
+  </motion.div>;
+}
+
+function EventLedger({ events }: { events: EventRecord[] }) {
+  return <section className="event-ledger glass-frame"><div className="panel-heading"><div><p className="eyebrow">APPEND-ONLY EVENT LEDGER</p><h2>What the system actually recorded</h2></div><DatabaseZap size={18}/></div>{events.length ? <div className="ledger-list">{events.map((event) => <article key={event.sequence}><span>{String(event.sequence).padStart(3, '0')}</span><b>{event.type}</b><time>{new Date(event.at).toLocaleTimeString()}</time><code>{JSON.stringify(event.payload)}</code></article>)}</div> : <p className="empty-copy">No safe events are available for this incident.</p>}</section>;
+}
+
+function EmptyState({ title, copy, onRefresh }: { title: string; copy: string; onRefresh: () => void }) {
+  return <motion.section className="empty-state glass-frame" initial={{ opacity: 0 }} animate={{ opacity: 1 }}><Activity size={24}/><h1>{title}</h1><p>{copy}</p><button className="button-primary" onClick={onRefresh}><RefreshCw size={15}/>Refresh connection</button></motion.section>;
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return <article className={`metric-card tone-${tone.toLowerCase()}`}><span>{label}</span><b>{value}</b></article>;
+}
+
+function eventsForStage(events: EventRecord[], stage: Stage) { return events.filter((event) => stage.eventTypes.includes(event.type)); }
+function currentStage(incident: LiveIncident | null) {
+  if (!incident) return -1;
+  let highest = -1;
+  stages.forEach((stage, index) => { if (eventsForStage(incident.events, stage).length) highest = index; });
+  if (incident.state === 'PATCHING' && highest < 3) return 3;
+  return highest;
+}
+function stageState(incident: LiveIncident | null, index: number, activeIndex: number): StageState {
+  if (!incident) return 'waiting';
+  if (eventsForStage(incident.events, stages[index]!).length) return 'complete';
+  if (terminalStates.has(incident.state) && index >= Math.max(0, activeIndex)) return 'blocked';
+  return index === activeIndex ? 'active' : 'waiting';
+}
+function humanize(value: string) { return value.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+function compact(value: string) { return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value; }
+function exitSummary(value: number[] | null) { return value ? value.every((code) => code === 0) ? `${value.length}/${value.length} passed` : value.join(', ') : 'not recorded'; }
+function exitValue(value: number | null) { return value === null ? 'not recorded' : value === 0 ? 'passed' : `exit ${value}`; }
