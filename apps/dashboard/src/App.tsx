@@ -210,18 +210,23 @@ function Landing({ incident, loading, onConsole, onRunbook, onInspect }: { incid
         </div>
       </section>
 
-      <section className="journey-section" data-glass-tilt>
-        <div className="section-label"><span>01</span><p>THE SIGNAL BECOMES A CASE</p></div>
-        <div className="journey-copy"><h2>Every transition<br />has a witness.</h2><p>CI Doctor never advances because an agent says it is done. It advances only when an append-only event or recorded command result says so.</p></div>
-        <StageRail incident={incident} activeIndex={stageIndex} onInspect={onInspect} />
-      </section>
-
-      <section className="authority-slab" data-glass-tilt>
-        <div><p className="eyebrow"><span /> CLEAR SEPARATION OF POWERS</p><h2>The model can propose.<br />It cannot publish.</h2></div>
-        <div className="authority-path">
-          <article data-glass-tilt><span>01</span><b>Codex</b><p>Structured diagnosis and constrained diff proposal.</p></article>
-          <article data-glass-tilt><span>02</span><b>Docker</b><p>Network-sealed patch and test verification.</p></article>
-          <article data-glass-tilt><span>03</span><b>GitHub broker</b><p>Idempotent PR creation from validated file content only.</p></article>
+      <section className="proof-continuum" data-glass-tilt aria-labelledby="proof-continuum-title">
+        <div className="proof-continuum__intro">
+          <div className="section-label"><span>01</span><p>THE SIGNAL BECOMES A CASE</p></div>
+          <div className="journey-copy"><h2 id="proof-continuum-title">Every transition<br />has a witness.</h2><p>CI Doctor never advances because an agent says it is done. It advances only when an append-only event or recorded command result says so.</p></div>
+        </div>
+        <div className="proof-continuum__stages">
+          <p className="proof-continuum__eyebrow">RECORDED WORKFLOW</p>
+          <StageRail incident={incident} activeIndex={stageIndex} onInspect={onInspect} />
+        </div>
+        <div className="proof-continuum__authority">
+          <p className="eyebrow"><span /> CLEAR SEPARATION OF POWERS</p>
+          <h2>The model can propose.<br />It cannot publish.</h2>
+          <div className="authority-path">
+            <article data-glass-tilt><span>01</span><b>Codex</b><p>Structured diagnosis and constrained diff proposal.</p></article>
+            <article data-glass-tilt><span>02</span><b>Docker</b><p>Network-sealed patch and test verification.</p></article>
+            <article data-glass-tilt><span>03</span><b>GitHub broker</b><p>Idempotent PR creation from validated file content only.</p></article>
+          </div>
         </div>
       </section>
     </motion.section>

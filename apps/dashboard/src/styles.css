@@ -767,3 +767,82 @@ html, body, #root { width: 100%; max-width: 100%; overflow-x: clip; }
   .app-shell--home .journey-section .stage-node,
   .app-shell--home .authority-path article { height: auto; min-height: 86px; border-radius: 19px; }
 }
+
+/* Unified home proof rail: one continuous surface, not three detached cards. */
+.app-shell--home .proof-continuum {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(260px, .78fr) minmax(330px, 1fr) minmax(320px, 1.02fr);
+  gap: clamp(26px, 3vw, 54px);
+  width: min(1480px, calc(100% - clamp(32px, 6vw, 120px)));
+  margin: clamp(50px, 7vw, 96px) auto 0;
+  padding: clamp(32px, 4.4vw, 66px);
+  border: 1px solid rgba(235, 226, 255, .14);
+  border-radius: 32px;
+  background: linear-gradient(135deg, rgba(9, 10, 21, .48), rgba(19, 10, 28, .24));
+  box-shadow: 0 32px 90px rgba(0, 0, 0, .36), inset 0 1px rgba(255, 255, 255, .08);
+  backdrop-filter: blur(20px) saturate(145%);
+  -webkit-backdrop-filter: blur(20px) saturate(145%);
+  overflow: hidden;
+}
+.app-shell--home .proof-continuum::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, rgba(119, 232, 237, .08), transparent 32%, transparent 68%, rgba(255, 150, 74, .10));
+}
+.app-shell--home .proof-continuum > * { position: relative; z-index: 1; min-width: 0; }
+.app-shell--home .proof-continuum__intro { display: grid; align-content: start; gap: 28px; padding: 5px 0; }
+.app-shell--home .proof-continuum .section-label { align-self: start; }
+.app-shell--home .proof-continuum .journey-copy h2,
+.app-shell--home .proof-continuum__authority > h2 { margin: 0; color: var(--cp-ink); font-size: clamp(38px, 3.65vw, 61px); line-height: .92; letter-spacing: -.075em; }
+.app-shell--home .proof-continuum .journey-copy p { max-width: 390px; margin: 20px 0 0; color: var(--cp-muted); font-size: 14px; line-height: 1.72; }
+.app-shell--home .proof-continuum__stages,
+.app-shell--home .proof-continuum__authority { padding-left: clamp(0px, 2.8vw, 44px); border-left: 1px solid rgba(235, 226, 255, .12); }
+.app-shell--home .proof-continuum__eyebrow { margin: 5px 0 15px; color: #a99cbe; font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; letter-spacing: .13em; }
+.app-shell--home .proof-continuum .stage-rail { gap: 0; padding: 0; background: transparent; backdrop-filter: none; }
+.app-shell--home .proof-continuum .stage-node {
+  height: auto;
+  min-height: 76px;
+  margin: 0;
+  padding: 12px 14px;
+  border-color: transparent transparent rgba(235, 226, 255, .11);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.app-shell--home .proof-continuum .stage-node:first-child { border-top: 1px solid rgba(235, 226, 255, .11); }
+.app-shell--home .proof-continuum .stage-node:hover { transform: translateX(4px); border-color: rgba(255, 172, 108, .42); background: rgba(255, 163, 95, .06); }
+.app-shell--home .proof-continuum__authority > .eyebrow { margin: 5px 0 18px; }
+.app-shell--home .proof-continuum__authority > h2 { max-width: 430px; margin-bottom: 25px; font-size: clamp(30px, 2.75vw, 47px); }
+.app-shell--home .proof-continuum .authority-path { gap: 0; }
+.app-shell--home .proof-continuum .authority-path article {
+  min-height: 72px;
+  height: auto;
+  padding: 13px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(235, 226, 255, .11);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.app-shell--home .proof-continuum .authority-path article:first-child { border-top: 1px solid rgba(235, 226, 255, .11); }
+.app-shell--home .proof-continuum .authority-path article:hover { transform: translateX(4px); background: transparent; }
+@media (max-width: 1120px) {
+  .app-shell--home .proof-continuum { grid-template-columns: .8fr 1fr; }
+  .app-shell--home .proof-continuum__authority { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(240px, .8fr) 1.2fr; column-gap: 38px; }
+  .app-shell--home .proof-continuum__authority > .eyebrow { grid-column: 1; grid-row: 1; }
+  .app-shell--home .proof-continuum__authority > h2 { grid-column: 1; grid-row: 2; }
+  .app-shell--home .proof-continuum .authority-path { grid-column: 2; grid-row: 1 / span 2; }
+}
+@media (max-width: 740px) {
+  .app-shell--home .proof-continuum { grid-template-columns: 1fr; gap: 30px; width: calc(100% - 28px); margin-top: 42px; padding: 28px 20px; border-radius: 24px; }
+  .app-shell--home .proof-continuum__stages,
+  .app-shell--home .proof-continuum__authority { padding: 28px 0 0; border-top: 1px solid rgba(235, 226, 255, .12); border-left: 0; }
+  .app-shell--home .proof-continuum__authority { display: block; }
+  .app-shell--home .proof-continuum .authority-path { display: grid; margin-top: 22px; }
+}
