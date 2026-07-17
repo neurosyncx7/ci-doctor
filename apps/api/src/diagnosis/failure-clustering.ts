@@ -42,8 +42,12 @@ export function extractFailureClusters(log: string, logArtifactSha256: string): 
 
 function normalizeExcerpt(value: string): string {
   return value
-    .replace(/C:\\[^\s)]+/g, '<workspace-path>')
-    .replace(/\/[^\s)]+/g, '<workspace-path>')
+    .replace(/(?:[A-Za-z]:)?[\\/][^\r\n'\")]+/g, (absolutePath: string) => {
+      const normalized = absolutePath.replaceAll('\\', '/');
+      const testLocation = /test\/[A-Za-z0-9._-]+\.test\.[A-Za-z0-9]+(?::\d+:\d+)?/i.exec(normalized);
+      return testLocation?.[0] ?? '<workspace-path>';
+    })
+    .replace(/(?<!test)\/[^\s)]+/g, '<workspace-path>')
     .replace(/\r\n/g, '\n')
     .trim()
     .slice(0, 3_800);

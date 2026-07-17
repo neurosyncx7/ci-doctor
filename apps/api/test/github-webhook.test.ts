@@ -15,6 +15,7 @@ const config: AppConfig = {
   databaseUrl: 'postgresql://not-used-in-unit-tests',
   githubWebhookSecret: webhookSecret,
   allowedRepositories: new Set(['acme/ci-doctor-fixtures']),
+  dashboardAllowedOrigins: new Set(['https://neurosyncx7.github.io']),
   githubAppId: 1234,
   githubAppPrivateKey: 'test-private-key-not-used-by-the-webhook-route',
   artifactEncryptionKey: Buffer.alloc(32, 7),
@@ -82,6 +83,21 @@ test('ignores a signed successful run without creating an incident', async () =>
   await app.close();
 });
 
+test('allows only the configured public dashboard origin to read safe dashboard records', async () => {
+  const store = new RecordingStore();
+  const app = await buildApp({ config, incidentStore: store });
+
+  const allowed = await app.inject({ method: 'GET', url: '/v1/dashboard/verified-incident', headers: { origin: 'https://neurosyncx7.github.io' } });
+  assert.equal(allowed.headers['access-control-allow-origin'], 'https://neurosyncx7.github.io');
+  assert.equal(allowed.headers.vary, 'Origin');
+
+  const denied = await app.inject({ method: 'GET', url: '/v1/dashboard/verified-incident', headers: { origin: 'https://untrusted.example' } });
+  assert.equal(denied.headers['access-control-allow-origin'], undefined);
+
+  const preflight = await app.inject({ method: 'OPTIONS', url: '/v1/dashboard/stream', headers: { origin: 'https://neurosyncx7.github.io' } });
+  assert.equal(preflight.statusCode, 204);
+  await app.close();
+});
 function signedHeaders(body: string): Record<string, string> {
   return {
     'content-type': 'application/json',

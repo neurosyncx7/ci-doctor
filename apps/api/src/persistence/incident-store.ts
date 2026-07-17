@@ -79,8 +79,8 @@ async function createOrGetIncident(client: PoolClient, workflow: FailedWorkflowR
   const inserted = await client.query<{ id: string }>(
     `INSERT INTO incidents (
        github_repo_id, github_installation_id, repo_full_name, workflow_run_id,
-       run_attempt, workflow_name, head_sha, base_sha
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       run_attempt, workflow_name, head_sha, base_sha, head_branch
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (github_repo_id, workflow_run_id, run_attempt) DO NOTHING
      RETURNING id`,
     [
@@ -91,7 +91,8 @@ async function createOrGetIncident(client: PoolClient, workflow: FailedWorkflowR
       workflow.runAttempt,
       workflow.workflowName,
       workflow.headSha,
-      workflow.baseSha
+      workflow.baseSha,
+      workflow.headBranch
     ]
   );
   if (inserted.rowCount === 1) {

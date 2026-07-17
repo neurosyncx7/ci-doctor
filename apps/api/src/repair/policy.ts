@@ -26,6 +26,9 @@ export function assertAllowedCommand(command: string, policy: RepairPolicy): voi
 }
 
 export function assertPatchWithinPolicy(diff: string, policy: RepairPolicy): void {
+  if (/^(?:new|old) file mode 120000$/m.test(diff) || /^Subproject commit /m.test(diff)) {
+    throw new Error('Patch may not introduce a symlink or submodule');
+  }
   const files = [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].map((match) => match[2]!);
   if (files.length === 0 || files.length > policy.repairBudget.maxChangedFiles) {
     throw new Error('Patch file count is outside the repair budget');

@@ -22,7 +22,7 @@ The command must initially fail. That is the source signal CI Doctor will later 
 
 ## Live repair proof
 
-CI Doctor produced a real, sandbox-validated repair PR for the fixture repository: [PR #3](https://github.com/neurosyncx7/ci-doctor-fixtures/pull/3). Its GitHub Actions check passed after four focused sandbox tests and the full eight-test suite succeeded.
+CI Doctor produced a real, sandbox-validated repair PR for the fixture repository: [PR #4](https://github.com/neurosyncx7/ci-doctor-fixtures/pull/4). The repair recorded four focused passing tests and a passing four-test full suite inside the sealed Docker sandbox before the broker opened the PR.
 
 The protected workflow bootstrap was intentionally separated from the agent repair scope: CI Doctor may only alter `src/**` and `test/**`; it never changes CI configuration or dependencies as part of an autonomous repair.
 
