@@ -1,4 +1,6 @@
-import { loadConfig } from '../config.js';
+﻿import { loadConfig } from '../config.js';
+import { CodexCliDiagnosisModel } from '../diagnosis/codex-cli-diagnosis-model.js';
+import { type DiagnosisModel } from '../diagnosis/contract.js';
 import { loadDiagnosisRuntimeConfig } from '../diagnosis/diagnosis-runtime-config.js';
 import { OpenAiDiagnosisModel } from '../diagnosis/openai-diagnosis-model.js';
 import { EncryptedArtifactStore } from '../persistence/artifact-store.js';
@@ -12,12 +14,11 @@ async function main(): Promise<void> {
   const database = createDatabase(config.databaseUrl);
   const artifacts = new EncryptedArtifactStore(database, config.artifactEncryptionKey);
   const queue = new PostgresDiagnosisQueue(database);
+  const model: DiagnosisModel = diagnosisConfig.provider === 'codex_cli'
+    ? new CodexCliDiagnosisModel(diagnosisConfig.model)
+    : new OpenAiDiagnosisModel(diagnosisConfig.apiKey!, diagnosisConfig.model);
   const clusterWorker = new ClusterWorker(queue, artifacts);
-  const diagnosisWorker = new DiagnosisWorker(
-    queue,
-    artifacts,
-    new OpenAiDiagnosisModel(diagnosisConfig.apiKey, diagnosisConfig.model)
-  );
+  const diagnosisWorker = new DiagnosisWorker(queue, artifacts, model);
 
   let stopping = false;
   process.once('SIGINT', () => { stopping = true; });

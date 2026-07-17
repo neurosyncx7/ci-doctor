@@ -24,6 +24,7 @@ test('clusters the live fixture suite into four independent failure work items',
   );
 
   const clusters = extractFailureClusters(`${execution.stdout}\n${execution.stderr}`, 'a'.repeat(64));
+  assert.match(clusters[0]?.errorExcerpt ?? '', /test\/pagination\.test\.js/);
   assert.deepEqual(
     clusters.map((cluster) => cluster.testName).sort(),
     [

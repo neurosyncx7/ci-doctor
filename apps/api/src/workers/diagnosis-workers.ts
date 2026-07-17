@@ -61,6 +61,10 @@ export class DiagnosisWorker {
       await this.queue.recordDiagnosis(job, result);
       return true;
     } catch (error) {
+      const reason = error instanceof Error
+        ? error.message.replace(/[\r\n]/g, ' ').replace(/(?:token|secret|password|authorization)\s*[:=]\s*\S+/gi, '$1=[redacted]').slice(0, 240)
+        : 'unknown';
+      console.warn(JSON.stringify({ event: 'ci_doctor.diagnosis_worker_error', incidentId: job.incidentId, clusterId: job.clusterId, reason }));
       await this.queue.failDiagnosis(job, classifyDiagnosisFailure(error));
       return true;
     }

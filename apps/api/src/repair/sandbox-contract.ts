@@ -20,10 +20,11 @@ export type RepairTask = {
   clusterId: string;
   attempt: number;
   sourceSha: string;
+  workspacePath: string;
   policy: RepairPolicy;
   diagnosis: string;
   repositoryContext: string;
-  requiredTests: { targeted: string; fullSuite: string };
+  requiredTests: { targeted: readonly string[]; fullSuite: string };
 };
 
 export type RepairProposal = {

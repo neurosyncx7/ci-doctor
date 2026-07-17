@@ -8,6 +8,7 @@ const environmentSchema = z.object({
   DATABASE_URL: z.string().url().startsWith('postgresql://'),
   GITHUB_WEBHOOK_SECRET: z.string().min(32),
   GITHUB_ALLOWED_REPOSITORIES: z.string().min(3),
+  DASHBOARD_ALLOWED_ORIGINS: z.string().default(''),
   GITHUB_APP_ID: z.coerce.number().int().positive(),
   GITHUB_APP_PRIVATE_KEY: z.string().min(64),
   ARTIFACT_ENCRYPTION_KEY_BASE64: z.string().min(40),
@@ -21,6 +22,7 @@ export type AppConfig = {
   databaseUrl: string;
   githubWebhookSecret: string;
   allowedRepositories: ReadonlySet<string>;
+  dashboardAllowedOrigins: ReadonlySet<string>;
   githubAppId: number;
   githubAppPrivateKey: string;
   artifactEncryptionKey: Buffer;
@@ -32,6 +34,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   const allowedRepositories = new Set(
     parsed.GITHUB_ALLOWED_REPOSITORIES.split(',').map((repository) => repository.trim()).filter(Boolean)
   );
+
+  const dashboardAllowedOrigins = parseAllowedOrigins(parsed.DASHBOARD_ALLOWED_ORIGINS);
 
   if (allowedRepositories.size === 0) {
     throw new Error('GITHUB_ALLOWED_REPOSITORIES must contain at least one repository');
@@ -53,9 +57,21 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     databaseUrl: parsed.DATABASE_URL,
     githubWebhookSecret: parsed.GITHUB_WEBHOOK_SECRET,
     allowedRepositories,
+    dashboardAllowedOrigins,
     githubAppId: parsed.GITHUB_APP_ID,
     githubAppPrivateKey: parsed.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
     artifactEncryptionKey,
     logLevel: parsed.LOG_LEVEL
   };
+}
+
+function parseAllowedOrigins(value: string): ReadonlySet<string> {
+  const origins = value.split(',').map((origin) => origin.trim()).filter(Boolean);
+  return new Set(origins.map((origin) => {
+    const parsed = new URL(origin);
+    if (parsed.origin !== origin || !['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('DASHBOARD_ALLOWED_ORIGINS entries must be absolute http(s) origins without paths');
+    }
+    return origin;
+  }));
 }

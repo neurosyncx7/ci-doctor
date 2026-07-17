@@ -7,6 +7,7 @@ import type { AppConfig } from './config.js';
 import { parseFailedWorkflowRun } from './domain/workflow-run.js';
 import { verifiedIncident } from './dashboard/verified-incident.js';
 import { DashboardLiveEvents } from './dashboard/live-events.js';
+import type { DashboardIncidentReadStore } from './dashboard/incident-read-store.js';
 import type { IncidentStore } from './persistence/incident-store.js';
 import { verifyGitHubSignature } from './security/github-signature.js';
 
@@ -15,6 +16,7 @@ type Dependencies = {
   incidentStore: IncidentStore;
   logger?: FastifyBaseLogger;
   liveEvents?: DashboardLiveEvents;
+  dashboardStore?: DashboardIncidentReadStore;
 };
 
 const deliveryIdPattern = /^[A-Za-z0-9-]{16,200}$/;
@@ -58,9 +60,34 @@ export async function buildApp(dependencies: Dependencies): Promise<FastifyInsta
     ban: 3,
     keyGenerator: (request) => request.ip
   });
+  app.addHook('onRequest', async (request, reply) => {
+    if (!request.url.startsWith('/v1/dashboard/')) return;
+    const origin = readHeader(request.headers.origin);
+    if (!origin || !dependencies.config.dashboardAllowedOrigins.has(origin)) return;
+    reply.header('access-control-allow-origin', origin);
+    reply.header('access-control-allow-methods', 'GET, OPTIONS');
+    reply.header('access-control-allow-headers', 'accept');
+    reply.header('access-control-max-age', '600');
+    reply.header('vary', 'Origin');
+    if (request.method === 'OPTIONS') return reply.code(204).send();
+  });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
   app.get('/v1/dashboard/verified-incident', async () => verifiedIncident);
+  app.get('/v1/dashboard/incidents/latest', async (_request, reply) => {
+    if (!dependencies.dashboardStore) return reply.code(503).send({ error: 'dashboard_unavailable' });
+    const incident = await dependencies.dashboardStore.latest();
+    return incident ?? reply.code(404).send({ error: 'no_live_incident' });
+  });
+  app.get('/v1/dashboard/incidents/:incidentId', async (request, reply) => {
+    if (!dependencies.dashboardStore) return reply.code(503).send({ error: 'dashboard_unavailable' });
+    const { incidentId } = request.params as { incidentId?: string };
+    if (!incidentId || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(incidentId)) {
+      return reply.code(400).send({ error: 'invalid_incident_id' });
+    }
+    const incident = await dependencies.dashboardStore.byId(incidentId);
+    return incident ?? reply.code(404).send({ error: 'incident_not_found' });
+  });
   app.get('/v1/dashboard/stream', async (request, reply) => {
     reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
     reply.raw.write(': connected\n\n');

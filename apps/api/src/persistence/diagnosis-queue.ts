@@ -60,6 +60,12 @@ export class PostgresDiagnosisQueue {
       if (!(await completeLease(client, job.outboxId, job.leaseToken))) {
         throw new Error('Cluster job lease was lost before completion');
       }
+      await client.query(
+        `UPDATE incidents
+         SET state = 'DIAGNOSING', version = version + 1, updated_at = now()
+         WHERE id = $1 AND state = 'CLUSTERING_FAILURES'`,
+        [job.incidentId]
+      );
       for (const cluster of clusters) {
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO failure_clusters (incident_id, fingerprint, test_name, log_artifact_sha256, error_excerpt)
@@ -124,8 +130,8 @@ export class PostgresDiagnosisQueue {
       }
       await client.query(
         `INSERT INTO diagnosis_findings (
-          cluster_id, attempt, model, response_id, input_tokens, output_tokens, visible_summary, hypotheses
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+          cluster_id, attempt, model, response_id, input_tokens, output_tokens, visible_summary, hypotheses, next_action
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
         [
           job.clusterId,
           job.attempt,
@@ -134,7 +140,8 @@ export class PostgresDiagnosisQueue {
           result.inputTokens,
           result.outputTokens,
           result.diagnosis.visibleSummary,
-          JSON.stringify(result.diagnosis.hypotheses)
+          JSON.stringify(result.diagnosis.hypotheses),
+          result.diagnosis.nextAction
         ]
       );
       await client.query(
@@ -158,6 +165,22 @@ export class PostgresDiagnosisQueue {
           })
         ]
       );
+      if (result.diagnosis.nextAction === 'EXECUTE_REPAIR') {
+        const pending = await client.query<{ count: string }>(
+          `SELECT count(*)::text AS count
+           FROM failure_clusters
+           WHERE incident_id = $1 AND state = 'PENDING'`,
+          [job.incidentId]
+        );
+        if (pending.rows[0]?.count === '0') {
+          await client.query(
+            `INSERT INTO outbox (topic, dedupe_key, payload)
+             VALUES ('repair.work.requested', $1, $2::jsonb)
+             ON CONFLICT (dedupe_key) DO NOTHING`,
+            [`incident:${job.incidentId}:repair`, JSON.stringify({ incidentId: job.incidentId })]
+          );
+        }
+      }
     });
   }
 
