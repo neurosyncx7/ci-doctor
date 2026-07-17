@@ -17,10 +17,11 @@ const task: RepairTask = {
   clusterId: 'cluster-1',
   attempt: 1,
   sourceSha: 'a'.repeat(40),
+  workspacePath: '.',
   policy,
   diagnosis: 'Exact multiples are undercounted.',
   repositoryContext: 'src/pagination.js and test/pagination.test.js',
-  requiredTests: { targeted: 'npm test:targeted', fullSuite: 'npm test' }
+  requiredTests: { targeted: ['npm test:targeted'], fullSuite: 'npm test' }
 };
 
 const permittedPatch = [
@@ -84,3 +85,24 @@ class FakeSandbox implements RepairSandbox {
     this.destroyed = true;
   }
 }
+
+test('records a safe policy category and feeds that category—not raw sandbox text—to the next attempt', async () => {
+  const invalidPatch = Array.from({ length: 9 }, (_, index) => [
+    `diff --git a/src/file-${index}.js b/src/file-${index}.js`,
+    `--- a/src/file-${index}.js`,
+    `+++ b/src/file-${index}.js`,
+    '@@ -1 +1 @@',
+    '-old',
+    '+new'
+  ].join('\n')).join('\n');
+  const observedFailures: string[][] = [];
+  const agent: RepairAgent = {
+    propose: async (_task, priorFailures) => {
+      observedFailures.push([...priorFailures]);
+      return { visibleSummary: 'A bounded proposal.', regressionTestIntent: 'Policy test.', patch: `${invalidPatch}\n# attempt ${observedFailures.length}` };
+    }
+  };
+  const outcomes = await new RepairAttemptLoop(agent, new FakeSandbox()).run(task);
+  assert.equal(outcomes[0]?.reasonCode, 'patch_file_budget');
+  assert.deepEqual(observedFailures[1], ['patch_rejected:patch_file_budget']);
+});

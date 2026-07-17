@@ -8,8 +8,9 @@ export type RepairAttemptOutcome = {
   proposalSummary: string;
   patchSha256: string;
   state: 'VALIDATED' | 'REJECTED' | 'VALIDATION_FAILED' | 'BUDGET_EXHAUSTED';
-  reasonCode?: 'duplicate_patch' | 'policy_rejected' | 'targeted_test_failed' | 'full_suite_failed' | 'agent_failed';
-  targeted?: SandboxCommandResult;
+  reasonCode?: 'duplicate_patch' | 'patch_file_budget' | 'patch_line_budget' | 'protected_path' | 'outside_write_scope' | 'invalid_structured_edit' | 'sandbox_patch_rejected' | 'targeted_test_failed' | 'full_suite_failed' | 'agent_failed';
+  diff?: string;
+  targeted?: readonly SandboxCommandResult[];
   fullSuite?: SandboxCommandResult;
 };
 
@@ -30,6 +31,13 @@ export class RepairAttemptLoop {
         try {
           proposal = await this.agent.propose({ ...task, attempt }, priorFailures);
         } catch (error) {
+          const safeReason = toSafeReason(error);
+          console.warn(JSON.stringify({
+            event: 'ci_doctor.repair_agent_rejected',
+            incidentId: task.incidentId,
+            attempt,
+            reason: safeReason
+          }));
           outcomes.push({
             attempt,
             proposalSummary: 'Repair agent did not return a proposal.',
@@ -37,7 +45,7 @@ export class RepairAttemptLoop {
             state: attempt === task.policy.repairBudget.maxAttempts ? 'BUDGET_EXHAUSTED' : 'REJECTED',
             reasonCode: 'agent_failed'
           });
-          priorFailures.push(`agent_failed:${toSafeReason(error)}`);
+          priorFailures.push(`agent_failed:${safeReason}`);
           continue;
         }
 
@@ -58,14 +66,22 @@ export class RepairAttemptLoop {
           assertPatchWithinPolicy(proposal.patch, task.policy);
           await this.sandbox.applyPatch(proposal.patch, task.policy);
         } catch (error) {
+          const reasonCode = classifyPatchRejection(error);
+          console.warn(JSON.stringify({
+            event: 'ci_doctor.repair_policy_rejected',
+            incidentId: task.incidentId,
+            attempt,
+            reasonCode
+          }));
           outcomes.push({
             attempt,
             proposalSummary: proposal.visibleSummary,
             patchSha256,
             state: attempt === task.policy.repairBudget.maxAttempts ? 'BUDGET_EXHAUSTED' : 'REJECTED',
-            reasonCode: 'policy_rejected'
+            reasonCode
           });
-          priorFailures.push(`policy_rejected:${toSafeReason(error)}`);
+          // Give the next bounded attempt an actionable category, never a raw sandbox error.
+          priorFailures.push(`patch_rejected:${reasonCode}`);
           continue;
         }
 
@@ -76,6 +92,7 @@ export class RepairAttemptLoop {
             proposalSummary: proposal.visibleSummary,
             patchSha256,
             state: 'VALIDATED',
+            diff: validated.diff,
             targeted: validated.targeted,
             fullSuite: validated.fullSuite
           });
@@ -106,4 +123,15 @@ function toSafeReason(error: unknown): string {
     return 'unknown';
   }
   return error.message.replace(/[\r\n]/g, ' ').slice(0, 240);
+}
+
+/** Maps internal policy/sandbox errors to a small safe taxonomy for telemetry and retries. */
+function classifyPatchRejection(error: unknown): NonNullable<RepairAttemptOutcome['reasonCode']> {
+  const message = error instanceof Error ? error.message : '';
+  if (message.includes('file count') || message.includes('edit count')) return 'patch_file_budget';
+  if (message.includes('line count')) return 'patch_line_budget';
+  if (message.includes('protected path')) return 'protected_path';
+  if (message.includes('outside autonomous scope')) return 'outside_write_scope';
+  if (/Structured repair|expected text|regular files|resolved outside/i.test(message)) return 'invalid_structured_edit';
+  return 'sandbox_patch_rejected';
 }
