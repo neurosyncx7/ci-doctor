@@ -160,7 +160,7 @@ export function App() {
 
 function ScrollVideo() {
   return <video className="accretion-video" autoPlay muted loop playsInline preload="auto" aria-hidden="true">
-    <source src={`${import.meta.env.BASE_URL}assets/cosmic-transitions.mp4`} type="video/mp4" />
+    <source src={`${import.meta.env.BASE_URL}assets/black-hole-hero.mp4`} type="video/mp4" />
   </video>;
 }
 function Landing({ incident, loading, onConsole, onRunbook, onInspect }: { incident: LiveIncident | null; loading: boolean; onConsole: () => void; onRunbook: () => void; onInspect: (stage: number) => void }) {
@@ -260,6 +260,8 @@ function Console({ incident, loading, onInspect, onRefresh }: { incident: LiveIn
         <Metric label="Repair attempts" value={String(attempts.length)} tone={incident.repair?.state ?? 'neutral'} />
       </section>
 
+      <SafetyProofRail incident={incident} onInspect={onInspect} />
+
       <section className="console-layout">
         <div className="stage-column glass-frame">
           <div className="panel-heading"><div><p className="eyebrow">AUTONOMOUS RUN</p><h2>Inspect recorded stages</h2></div><Layers3 size={18}/></div>
@@ -273,7 +275,13 @@ function Console({ incident, loading, onInspect, onRefresh }: { incident: LiveIn
             <p>{selected?.visibleSummary ?? 'No safe diagnosis summary is available yet.'}</p>
             <footer><b>Next action</b><code>{selected?.nextAction ?? 'PENDING'}</code></footer>
           </article>
-          <p className="guardrail-note"><LockKeyhole size={14}/>Only safe evidence summaries appear here. Raw CI logs and hidden model reasoning remain outside the UI.</p>
+          <div className="evidence-shortcuts">
+            <p><LockKeyhole size={14}/>Raw logs stay in GitHub; CI Doctor displays only safe evidence summaries.</p>
+            <div>
+              {workflowRunUrl(incident) && <button onClick={() => window.open(workflowRunUrl(incident)!, '_blank', 'noopener,noreferrer')}><TerminalSquare size={14}/>Open real failed workflow log<ExternalLink size={12}/></button>}
+              {sourceDiffUrl(incident) && <button onClick={() => window.open(sourceDiffUrl(incident)!, '_blank', 'noopener,noreferrer')}><FileSearch size={14}/>Open verified source diff<ExternalLink size={12}/></button>}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -287,6 +295,31 @@ function Console({ incident, loading, onInspect, onRefresh }: { incident: LiveIn
   );
 }
 
+function SafetyProofRail({ incident, onInspect }: { incident: LiveIncident; onInspect: (stage: number) => void }) {
+  const [active, setActive] = useState(0);
+  const nodes = [
+    { title: 'GitHub evidence', copy: 'Signed, allowlisted, bounded', stage: 0, Icon: ShieldCheck },
+    { title: 'Codex proposal', copy: 'Policy-scoped, no write authority', stage: 2, Icon: FileSearch },
+    { title: 'Docker proof', copy: 'No network, tests recorded', stage: 3, Icon: TerminalSquare },
+    { title: 'GitHub broker', copy: 'Idempotent PR after proof', stage: 4, Icon: GitPullRequest }
+  ];
+  const selected = nodes[active]!;
+  return <section className="safety-proof-rail glass-frame" aria-labelledby="safety-proof-title">
+    <div className="safety-proof-rail__header">
+      <div><p className="eyebrow"><span /> AUTHORITY MAP</p><h2 id="safety-proof-title">Proof before pull request.</h2></div>
+      <p>Click a boundary to inspect its recorded evidence.</p>
+    </div>
+    <div className="safety-proof-rail__nodes" aria-label="CI Doctor separation of powers">
+      {nodes.map((node, index) => <div className="safety-proof-rail__step" key={node.title}>
+        <button className={active === index ? 'is-selected' : ''} onClick={() => { setActive(index); onInspect(node.stage); }} aria-pressed={active === index}>
+          <node.Icon size={19}/><span><b>{node.title}</b><small>{node.copy}</small></span>
+        </button>
+        {index < nodes.length - 1 && <span className={`safety-proof-rail__arrow ${index === 1 ? 'is-blocked' : ''}`} aria-hidden="true">{index === 1 ? '×' : '→'}</span>}
+      </div>)}
+    </div>
+    <div className="safety-proof-rail__detail"><b>{selected.title}</b><span>{selected.copy}</span>{selected.stage === 2 && <em>Direct model-to-GitHub writes are blocked.</em>}</div>
+  </section>;
+}
 function Runbook({ incident, onInspect, onConsole }: { incident: LiveIncident | null; onInspect: (stage: number) => void; onConsole: () => void }) {
   return <motion.section className="runbook-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
     <div className="runbook-intro"><p className="eyebrow"><span /> THE JOB, NOT A CHAT</p><h1>A bounded repair loop with real consequences.</h1><p>Each stage is independently inspectable, has its own authority, and stops at a hard safety boundary.</p><button className="button-primary" onClick={onConsole}>Open current incident <ArrowUpRight size={16}/></button></div>
@@ -371,7 +404,13 @@ function stageState(incident: LiveIncident | null, index: number, activeIndex: n
   if (terminalStates.has(incident.state) && index >= Math.max(0, activeIndex)) return 'blocked';
   return index === activeIndex ? 'active' : 'waiting';
 }
-function humanize(value: string) { return value.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+function workflowRunUrl(incident: LiveIncident): string | null {
+  const runId = incident.events.find((event) => event.type === 'workflow.failure.detected')?.payload.workflowRunId;
+  return typeof runId === 'number' && Number.isSafeInteger(runId) ? `https://github.com/${incident.repository}/actions/runs/${runId}` : null;
+}
+function sourceDiffUrl(incident: LiveIncident): string | null {
+  return incident.repair?.pullRequest ? `${incident.repair.pullRequest.url}/files` : null;
+}function humanize(value: string) { return value.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function compact(value: string) { return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value; }
 function exitSummary(value: number[] | null) { return value ? value.every((code) => code === 0) ? `${value.length}/${value.length} passed` : value.join(', ') : 'not recorded'; }
 function exitValue(value: number | null) { return value === null ? 'not recorded' : value === 0 ? 'passed' : `exit ${value}`; }
